@@ -55,6 +55,7 @@ export class ZetaChainRPCService {
     this.config = ZETACHAIN_CONFIG[networkType];
     this.provider = null;
     this.isConnected = false;
+    this.requestCache = new Map();
 
     this._initializeProvider();
   }
@@ -65,14 +66,14 @@ export class ZetaChainRPCService {
    */
   _initializeProvider() {
     try {
-      // Create provider with custom configuration
-      this.provider = new ethers.JsonRpcProvider(this.config.rpcUrl, {
+      // Create provider with custom configuration and timeout
+      const fetchRequest = new ethers.FetchRequest(this.config.rpcUrl);
+      fetchRequest.timeout = APP_CONFIG.API.REQUEST_TIMEOUT;
+
+      this.provider = new ethers.JsonRpcProvider(fetchRequest, {
         chainId: this.config.chainId,
         name: this.config.name,
       });
-
-      // Set timeout for requests
-      this.provider._getConnection().timeout = APP_CONFIG.API.REQUEST_TIMEOUT;
 
       this.isConnected = true;
     } catch (error) {
@@ -95,22 +96,55 @@ export class ZetaChainRPCService {
 
     this.networkType = networkType;
     this.config = ZETACHAIN_CONFIG[networkType];
+    this.requestCache.clear(); // Clear cache when switching networks
     this._initializeProvider();
   }
 
   /**
-   * Execute RPC call with retry logic
+   * Execute RPC call with retry logic and caching
    * @param {Function} operation - Async operation to execute
+   * @param {string} [cacheKey] - Cache key for GET-like operations
    * @param {number} [maxRetries] - Maximum number of retries
    * @returns {Promise<any>} Operation result
    * @private
    */
-  async _executeWithRetry(operation, maxRetries = APP_CONFIG.API.MAX_RETRIES) {
+  async _executeWithRetry(
+    operation,
+    cacheKey = null,
+    maxRetries = APP_CONFIG.API.MAX_RETRIES
+  ) {
+    // Check cache first
+    if (cacheKey && this.requestCache.has(cacheKey)) {
+      const cached = this.requestCache.get(cacheKey);
+      if (Date.now() - cached.timestamp < APP_CONFIG.API.CACHE_DURATION) {
+        return cached.data;
+      }
+      this.requestCache.delete(cacheKey);
+    }
+
     let lastError;
 
     for (let attempt = 0; attempt <= maxRetries; attempt++) {
       try {
-        return await operation();
+        // Add timeout wrapper
+        const timeoutPromise = new Promise((_, reject) => {
+          setTimeout(
+            () => reject(new Error("RPC request timeout")),
+            APP_CONFIG.API.REQUEST_TIMEOUT
+          );
+        });
+
+        const result = await Promise.race([operation(), timeoutPromise]);
+
+        // Cache successful results
+        if (cacheKey) {
+          this.requestCache.set(cacheKey, {
+            data: result,
+            timestamp: Date.now(),
+          });
+        }
+
+        return result;
       } catch (error) {
         lastError = error;
 
@@ -119,9 +153,9 @@ export class ZetaChainRPCService {
           throw this._mapError(error);
         }
 
-        // Wait before retry (exponential backoff)
+        // Wait before retry (shorter delay)
         if (attempt < maxRetries) {
-          const delay = APP_CONFIG.API.RETRY_DELAY * Math.pow(2, attempt);
+          const delay = APP_CONFIG.API.RETRY_DELAY * (attempt + 1);
           await new Promise((resolve) => setTimeout(resolve, delay));
         }
       }
@@ -143,7 +177,8 @@ export class ZetaChainRPCService {
       errorMessage.includes("invalid") ||
       errorMessage.includes("not found") ||
       errorMessage.includes("bad request") ||
-      error.code === "INVALID_ARGUMENT"
+      error.code === "INVALID_ARGUMENT" ||
+      error.code === "CALL_EXCEPTION"
     );
   }
 
@@ -156,7 +191,7 @@ export class ZetaChainRPCService {
   _mapError(error) {
     const errorMessage = error.message?.toLowerCase() || "";
 
-    if (errorMessage.includes("timeout")) {
+    if (errorMessage.includes("timeout") || error.code === "TIMEOUT") {
       return new ZetaRPCError(
         RPC_ERROR_TYPES.RPC_TIMEOUT,
         "RPC request timed out",
@@ -172,7 +207,10 @@ export class ZetaChainRPCService {
       );
     }
 
-    if (errorMessage.includes("invalid address")) {
+    if (
+      errorMessage.includes("invalid address") ||
+      error.code === "INVALID_ARGUMENT"
+    ) {
       return new ZetaRPCError(
         RPC_ERROR_TYPES.INVALID_ADDRESS,
         "Invalid address format",
@@ -282,6 +320,7 @@ export class ZetaChainRPCService {
       status,
       chainId: this.config.chainId,
       crossChainData: null, // Will be populated by higher-level services
+      logs: receipt?.logs || [], // Include logs for cross-chain detection
     };
   }
 
@@ -308,23 +347,31 @@ export class ZetaChainRPCService {
       }
 
       return this._transformTransaction(transaction, receipt);
-    });
+    }, `tx_${txHash}`);
   }
 
   /**
-   * Get all transactions for an address
+   * Get all transactions for an address with improved efficiency
    * @param {string} address - Wallet address
    * @param {Object} [options] - Query options
    * @param {number} [options.fromBlock] - Starting block number
    * @param {number} [options.toBlock] - Ending block number
    * @param {number} [options.limit] - Maximum number of transactions
+   * @param {number} [options.batchSize] - Number of blocks to process in each batch
    * @returns {Promise<TransactionData[]>} Array of transaction data
    * @throws {ZetaRPCError} If address is invalid or RPC error
    */
   async getAddressTransactions(address, options = {}) {
     this._validateAddress(address);
 
-    const { fromBlock = 0, toBlock = "latest", limit = 100 } = options;
+    const {
+      fromBlock = 0,
+      toBlock = "latest",
+      limit = 100,
+      batchSize = 50, // Process blocks in smaller batches for better performance
+    } = options;
+
+    const cacheKey = `addr_txs_${address}_${fromBlock}_${toBlock}_${limit}`;
 
     return this._executeWithRetry(async () => {
       // Get current block number for pagination
@@ -335,39 +382,117 @@ export class ZetaChainRPCService {
       const transactions = [];
       let blockNumber = endBlock;
 
-      // Scan blocks backwards to find transactions
+      // Scan blocks backwards in batches to find transactions
       while (blockNumber >= fromBlock && transactions.length < limit) {
-        try {
-          const block = await this.provider.getBlock(blockNumber, true);
+        const batchStart = Math.max(blockNumber - batchSize + 1, fromBlock);
+        const batchPromises = [];
 
-          if (block && block.transactions) {
-            for (const tx of block.transactions) {
-              if (transactions.length >= limit) break;
+        // Create batch of block requests
+        for (let i = blockNumber; i >= batchStart && i >= fromBlock; i--) {
+          batchPromises.push(
+            this.provider.getBlock(i, true).catch((error) => {
+              console.warn(`Failed to fetch block ${i}:`, error.message);
+              return null;
+            })
+          );
+        }
 
-              // Check if transaction involves the address
-              if (
-                tx.from?.toLowerCase() === address.toLowerCase() ||
-                tx.to?.toLowerCase() === address.toLowerCase()
-              ) {
-                // Get receipt for status
-                const receipt = await this.provider
-                  .getTransactionReceipt(tx.hash)
-                  .catch(() => null);
+        // Process batch
+        const blocks = await Promise.all(batchPromises);
 
+        for (const block of blocks) {
+          if (!block || !block.transactions || transactions.length >= limit) {
+            continue;
+          }
+
+          for (const tx of block.transactions) {
+            if (transactions.length >= limit) break;
+
+            // Check if transaction involves the address
+            if (
+              tx.from?.toLowerCase() === address.toLowerCase() ||
+              tx.to?.toLowerCase() === address.toLowerCase()
+            ) {
+              // Get receipt for status
+              try {
+                const receipt = await this.provider.getTransactionReceipt(
+                  tx.hash
+                );
                 transactions.push(this._transformTransaction(tx, receipt));
+              } catch (error) {
+                // Add transaction without receipt if receipt fetch fails
+                transactions.push(this._transformTransaction(tx));
               }
             }
           }
-        } catch (error) {
-          // Skip blocks that can't be fetched
-          console.warn(`Failed to fetch block ${blockNumber}:`, error.message);
         }
 
-        blockNumber--;
+        blockNumber = batchStart - 1;
       }
 
       return transactions;
-    });
+    }, cacheKey);
+  }
+
+  /**
+   * Get cross-chain transaction logs for an address
+   * @param {string} address - Address to search for
+   * @param {Object} [options] - Query options
+   * @param {number} [options.fromBlock] - Starting block number
+   * @param {number} [options.toBlock] - Ending block number
+   * @returns {Promise<Array>} Array of cross-chain transaction logs
+   */
+  async getCrossChainTransactionLogs(address, options = {}) {
+    this._validateAddress(address);
+
+    const { fromBlock = 0, toBlock = "latest" } = options;
+
+    return this._executeWithRetry(async () => {
+      // Common cross-chain event signatures on ZetaChain
+      // These would need to be updated with actual ZetaChain signatures
+      const crossChainTopics = [
+        // Add known ZetaChain cross-chain event signatures here
+        "0x7ec1c94701e09b1652f3e1d307e60c4b9ebf99aff8c2079fd1d8c585e031c4e4", // Example
+      ];
+
+      const filter = {
+        fromBlock: typeof fromBlock === "number" ? fromBlock : 0,
+        toBlock: typeof toBlock === "number" ? toBlock : "latest",
+        topics: [crossChainTopics], // Any of these topics
+      };
+
+      // Filter by address involvement
+      if (address !== ethers.ZeroAddress) {
+        // Search for address in various log positions
+        const logs = await Promise.all([
+          this.provider.getLogs({
+            ...filter,
+            topics: [crossChainTopics, ethers.zeroPadValue(address, 32)],
+          }),
+          this.provider.getLogs({
+            ...filter,
+            topics: [crossChainTopics, null, ethers.zeroPadValue(address, 32)],
+          }),
+          this.provider.getLogs({ ...filter, address: address }),
+        ]);
+
+        // Flatten and deduplicate logs
+        const allLogs = logs.flat();
+        const uniqueLogs = allLogs.filter(
+          (log, index, self) =>
+            index ===
+            self.findIndex(
+              (l) =>
+                l.transactionHash === log.transactionHash &&
+                l.logIndex === log.logIndex
+            )
+        );
+
+        return uniqueLogs;
+      }
+
+      return await this.provider.getLogs(filter);
+    }, `cc_logs_${address}_${fromBlock}_${toBlock}`);
   }
 
   /**
@@ -387,7 +512,7 @@ export class ZetaChainRPCService {
         networkType: this.networkType,
         connectedChains: this.config.connectedChains,
       };
-    });
+    }, `network_info_${this.networkType}`);
   }
 
   /**
@@ -397,7 +522,7 @@ export class ZetaChainRPCService {
   async getCurrentBlockNumber() {
     return this._executeWithRetry(async () => {
       return await this.provider.getBlockNumber();
-    });
+    }, `block_number_${this.networkType}`);
   }
 
   /**
@@ -411,7 +536,38 @@ export class ZetaChainRPCService {
     return this._executeWithRetry(async () => {
       const balance = await this.provider.getBalance(address);
       return balance.toString();
-    });
+    }, `balance_${address}_${this.networkType}`);
+  }
+
+  /**
+   * Get gas price
+   * @returns {Promise<string>} Gas price in wei
+   */
+  async getGasPrice() {
+    return this._executeWithRetry(async () => {
+      const feeData = await this.provider.getFeeData();
+      return feeData.gasPrice?.toString() || "0";
+    }, `gas_price_${this.networkType}`);
+  }
+
+  /**
+   * Get transaction receipt
+   * @param {string} txHash - Transaction hash
+   * @returns {Promise<Object|null>} Transaction receipt
+   */
+  async getTransactionReceipt(txHash) {
+    this._validateTxHash(txHash);
+
+    return this._executeWithRetry(async () => {
+      return await this.provider.getTransactionReceipt(txHash);
+    }, `receipt_${txHash}`);
+  }
+
+  /**
+   * Clear request cache
+   */
+  clearCache() {
+    this.requestCache.clear();
   }
 
   /**
@@ -442,3 +598,38 @@ export const zetaTestnetRPC = new ZetaChainRPCService("testnet");
 export function getZetaRPCService(networkType) {
   return networkType === "mainnet" ? zetaMainnetRPC : zetaTestnetRPC;
 }
+
+/**
+ * React Query key factory for ZetaChain RPC calls
+ */
+export const zetaChainRPCQueryKeys = {
+  all: ["zetachain-rpc"],
+  transaction: (networkType, txHash) => [
+    "zetachain-rpc",
+    networkType,
+    "transaction",
+    txHash,
+  ],
+  addressTransactions: (networkType, address, options) => [
+    "zetachain-rpc",
+    networkType,
+    "address-txs",
+    address,
+    options,
+  ],
+  balance: (networkType, address) => [
+    "zetachain-rpc",
+    networkType,
+    "balance",
+    address,
+  ],
+  blockNumber: (networkType) => ["zetachain-rpc", networkType, "block-number"],
+  networkInfo: (networkType) => ["zetachain-rpc", networkType, "network-info"],
+  crossChainLogs: (networkType, address, options) => [
+    "zetachain-rpc",
+    networkType,
+    "cc-logs",
+    address,
+    options,
+  ],
+};

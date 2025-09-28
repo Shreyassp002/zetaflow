@@ -15,11 +15,13 @@
  * @typedef {Object} ZetaNetworkConfig
  * @property {string} rpcUrl - RPC endpoint URL
  * @property {string} explorerUrl - Block explorer URL
- * @property {string} explorerApiUrl - Explorer API URL
+ * @property {string} explorerApiUrl - Explorer API URL (Blockscout API)
+ * @property {string} tendermintRpc - Tendermint RPC endpoint
+ * @property {string} cosmosApi - Cosmos SDK REST API endpoint
  * @property {number} chainId - Chain ID
  * @property {string} name - Network name
  * @property {string} symbol - Native token symbol
- * @property {ConnectedChain[]} connectedChains - Connected external chains
+ * @property {Object[]} connectedChains - Connected external chains
  */
 
 /**
@@ -28,9 +30,12 @@
  */
 export const ZETACHAIN_CONFIG = {
   mainnet: {
-    rpcUrl: "https://rpc.zetachain.com",
-    explorerUrl: "https://zetascan.com",
-    explorerApiUrl: "https://zetascan.com/api",
+    rpcUrl: "https://zetachain-evm.blockpi.network/v1/rpc/public",
+    explorerUrl: "https://explorer.zetachain.com",
+    explorerApiUrl: "https://zetachain.blockscout.com/api/v2",
+    tendermintRpc: "https://zetachain.blockpi.network/rpc/v1/public",
+    cosmosApi: "https://zetachain.blockpi.network/lcd/v1/public",
+    websocket: "wss://zetachain.blockpi.network/rpc/v1/public/websocket",
     chainId: 7000,
     name: "ZetaChain Mainnet",
     symbol: "ZETA",
@@ -67,12 +72,31 @@ export const ZETACHAIN_CONFIG = {
         explorerUrl: "https://basescan.org",
         isSupported: true,
       },
+      {
+        chainId: 42161,
+        name: "Arbitrum One",
+        symbol: "ETH",
+        rpcUrl: "https://arb1.arbitrum.io/rpc",
+        explorerUrl: "https://arbiscan.io",
+        isSupported: true,
+      },
+      {
+        chainId: 43114,
+        name: "Avalanche C-Chain",
+        symbol: "AVAX",
+        rpcUrl: "https://api.avax.network/ext/bc/C/rpc",
+        explorerUrl: "https://snowtrace.io",
+        isSupported: true,
+      },
     ],
   },
   testnet: {
-    rpcUrl: "https://rpc-testnet.zetachain.com",
-    explorerUrl: "https://zetascan.com/testnet",
-    explorerApiUrl: "https://zetascan.com/testnet/api",
+    rpcUrl: "https://zetachain-athens-evm.blockpi.network/v1/rpc/public",
+    explorerUrl: "https://athens.explorer.zetachain.com",
+    explorerApiUrl: "https://zetachain-athens-3.blockscout.com/api/v2",
+    tendermintRpc: "https://zetachain-athens.blockpi.network/rpc/v1/public",
+    cosmosApi: "https://zetachain-athens.blockpi.network/lcd/v1/public",
+    websocket: "wss://zetachain-athens.blockpi.network/rpc/v1/public/websocket",
     chainId: 7001,
     name: "ZetaChain Athens-3 Testnet",
     symbol: "ZETA",
@@ -94,19 +118,35 @@ export const ZETACHAIN_CONFIG = {
         isSupported: true,
       },
       {
-        chainId: 80001,
-        name: "Polygon Mumbai",
+        chainId: 80002,
+        name: "Polygon Amoy",
         symbol: "MATIC",
-        rpcUrl: "https://rpc-mumbai.maticvigil.com",
-        explorerUrl: "https://mumbai.polygonscan.com",
+        rpcUrl: "https://rpc-amoy.polygon.technology",
+        explorerUrl: "https://amoy.polygonscan.com",
         isSupported: true,
       },
       {
-        chainId: 84531,
-        name: "Base Goerli",
+        chainId: 84532,
+        name: "Base Sepolia",
         symbol: "ETH",
-        rpcUrl: "https://goerli.base.org",
-        explorerUrl: "https://goerli.basescan.org",
+        rpcUrl: "https://sepolia.base.org",
+        explorerUrl: "https://sepolia.basescan.org",
+        isSupported: true,
+      },
+      {
+        chainId: 421614,
+        name: "Arbitrum Sepolia",
+        symbol: "ETH",
+        rpcUrl: "https://sepolia-rollup.arbitrum.io/rpc",
+        explorerUrl: "https://sepolia.arbiscan.io",
+        isSupported: true,
+      },
+      {
+        chainId: 43113,
+        name: "Avalanche Fuji",
+        symbol: "AVAX",
+        rpcUrl: "https://api.avax-test.network/ext/bc/C/rpc",
+        explorerUrl: "https://testnet.snowtrace.io",
         isSupported: true,
       },
     ],
@@ -127,9 +167,10 @@ export const APP_CONFIG = {
 
   // API settings
   API: {
-    REQUEST_TIMEOUT: 10000,
-    MAX_RETRIES: 3,
-    RETRY_DELAY: 1000,
+    REQUEST_TIMEOUT: 3000, // Even faster timeout for web responsiveness
+    MAX_RETRIES: 1, // Single retry for faster failures
+    RETRY_DELAY: 300, // Very fast retry
+    CACHE_DURATION: 30000, // 30 seconds
   },
 
   // UI settings
@@ -170,7 +211,7 @@ export function getNetworkConfig(networkType) {
  * Get connected chain configuration by chain ID
  * @param {number} chainId - Chain ID
  * @param {'mainnet'|'testnet'} networkType - Network type
- * @returns {ConnectedChain|null} Connected chain configuration or null if not found
+ * @returns {Object|null} Connected chain configuration or null if not found
  */
 export function getConnectedChain(chainId, networkType) {
   const config = getNetworkConfig(networkType);

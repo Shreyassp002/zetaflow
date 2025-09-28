@@ -3,7 +3,6 @@
  * Provides utilities for data normalization and consistent graph data structure
  */
 
-import { getAddress } from "@zetachain/toolkit/client";
 import { getBalances } from "@zetachain/toolkit/client";
 import { getForeignCoins } from "@zetachain/toolkit/client";
 import { getCctxList } from "@zetachain/toolkit/client";
@@ -28,6 +27,7 @@ export const TOOLKIT_ERROR_TYPES = {
   INVALID_PARAMS: "INVALID_PARAMS",
   DATA_PROCESSING_ERROR: "DATA_PROCESSING_ERROR",
   TOOLKIT_ERROR: "TOOLKIT_ERROR",
+  API_UNAVAILABLE: "API_UNAVAILABLE",
   UNKNOWN_ERROR: "UNKNOWN_ERROR",
 };
 
@@ -61,6 +61,7 @@ export class ZetaChainToolkitService {
     this.config = ZETACHAIN_CONFIG[networkType];
     this.isInitialized = false;
     this.client = null;
+    this.requestCache = new Map();
 
     this._initialize();
   }
@@ -75,6 +76,7 @@ export class ZetaChainToolkitService {
       // Store network configuration for use in API calls
       this.rpcUrl = this.config.rpcUrl;
       this.chainId = this.config.chainId;
+      this.cosmosApi = this.config.cosmosApi;
       this.isInitialized = true;
     } catch (error) {
       throw new ZetaToolkitError(
@@ -96,18 +98,39 @@ export class ZetaChainToolkitService {
 
     this.networkType = networkType;
     this.config = ZETACHAIN_CONFIG[networkType];
+    this.requestCache.clear(); // Clear cache when switching networks
     this._initialize();
   }
 
   /**
-   * Execute toolkit operation with error handling
+   * Execute toolkit operation with error handling and caching
    * @param {Function} operation - Async operation to execute
+   * @param {string} [cacheKey] - Cache key for results
    * @returns {Promise<any>} Operation result
    * @private
    */
-  async _executeWithErrorHandling(operation) {
+  async _executeWithErrorHandling(operation, cacheKey = null) {
+    // Check cache first
+    if (cacheKey && this.requestCache.has(cacheKey)) {
+      const cached = this.requestCache.get(cacheKey);
+      if (Date.now() - cached.timestamp < APP_CONFIG.API.CACHE_DURATION) {
+        return cached.data;
+      }
+      this.requestCache.delete(cacheKey);
+    }
+
     try {
-      return await operation();
+      const result = await operation();
+
+      // Cache successful results
+      if (cacheKey && result) {
+        this.requestCache.set(cacheKey, {
+          data: result,
+          timestamp: Date.now(),
+        });
+      }
+
+      return result;
     } catch (error) {
       throw this._mapError(error);
     }
@@ -128,7 +151,8 @@ export class ZetaChainToolkitService {
 
     if (
       errorMessage.includes("network") ||
-      errorMessage.includes("connection")
+      errorMessage.includes("connection") ||
+      errorMessage.includes("fetch")
     ) {
       return new ZetaToolkitError(
         TOOLKIT_ERROR_TYPES.NETWORK_ERROR,
@@ -139,11 +163,24 @@ export class ZetaChainToolkitService {
 
     if (
       errorMessage.includes("invalid") ||
-      errorMessage.includes("parameter")
+      errorMessage.includes("parameter") ||
+      errorMessage.includes("bad request")
     ) {
       return new ZetaToolkitError(
         TOOLKIT_ERROR_TYPES.INVALID_PARAMS,
         "Invalid parameters provided to ZetaChain Toolkit",
+        error
+      );
+    }
+
+    if (
+      errorMessage.includes("404") ||
+      errorMessage.includes("not found") ||
+      errorMessage.includes("unavailable")
+    ) {
+      return new ZetaToolkitError(
+        TOOLKIT_ERROR_TYPES.API_UNAVAILABLE,
+        "ZetaChain Toolkit API is currently unavailable",
         error
       );
     }
@@ -156,7 +193,7 @@ export class ZetaChainToolkitService {
   }
 
   /**
-   * Get omnichain events from ZetaChain
+   * Get omnichain events from ZetaChain with improved error handling
    * @param {Object} [options] - Query options
    * @param {string} [options.address] - Filter by address
    * @param {number} [options.fromBlock] - Starting block number
@@ -166,30 +203,74 @@ export class ZetaChainToolkitService {
    */
   async getOmnichainEvents(options = {}) {
     const { address, fromBlock = 0, toBlock = "latest", limit = 100 } = options;
+    const cacheKey = `omni_events_${
+      address || "all"
+    }_${fromBlock}_${toBlock}_${limit}_${this.networkType}`;
 
     return this._executeWithErrorHandling(async () => {
       try {
-        // Get cross-chain transactions using the toolkit
-        const cctxList = await getCctxList({
-          api: this.config.explorerApiUrl,
-          limit,
-        });
+        // Try multiple API endpoints since the toolkit might use different ones
+        const apiEndpoints = [
+          this.config.cosmosApi,
+          this.config.explorerApiUrl,
+          // Add backup endpoints if needed
+        ];
+
+        let cctxList = [];
+        let lastError = null;
+
+        // Try each endpoint until one works
+        for (const api of apiEndpoints) {
+          try {
+            const response = await getCctxList({
+              api,
+              limit: Math.min(limit, 1000), // Cap limit to reasonable size
+            });
+
+            if (response && Array.isArray(response)) {
+              cctxList = response;
+              break;
+            } else if (response && response.cctx) {
+              cctxList = response.cctx;
+              break;
+            }
+          } catch (error) {
+            lastError = error;
+            console.warn(`Failed to fetch from ${api}:`, error.message);
+            continue;
+          }
+        }
+
+        // If all endpoints failed, return empty array with warning
+        if (cctxList.length === 0 && lastError) {
+          console.warn(
+            "All ZetaChain Toolkit API endpoints failed, returning empty array:",
+            lastError.message
+          );
+          return [];
+        }
 
         const events = [];
 
         for (const cctx of cctxList.slice(0, limit)) {
           // Filter by address if specified
-          if (
-            address &&
-            !cctx.inbound_tx_sender
-              ?.toLowerCase()
-              .includes(address.toLowerCase()) &&
-            !cctx.outbound_tx_receiver
-              ?.toLowerCase()
-              .includes(address.toLowerCase())
-          ) {
-            continue;
+          if (address) {
+            const addressLower = address.toLowerCase();
+            const sender = cctx.inbound_tx_sender?.toLowerCase() || "";
+            const receiver = cctx.outbound_tx_receiver?.toLowerCase() || "";
+
+            if (
+              !sender.includes(addressLower) &&
+              !receiver.includes(addressLower)
+            ) {
+              continue;
+            }
           }
+
+          // Filter by block range if specified
+          const blockNumber = cctx.inbound_tx_observed_external_height || 0;
+          if (fromBlock > 0 && blockNumber < fromBlock) continue;
+          if (toBlock !== "latest" && blockNumber > toBlock) continue;
 
           // Transform CCTX to omnichain event
           const event = this._transformCCTXToEvent(cctx);
@@ -200,14 +281,14 @@ export class ZetaChainToolkitService {
 
         return events;
       } catch (error) {
-        // Fallback to mock data structure if toolkit fails
+        // Graceful fallback - return empty array but log the issue
         console.warn(
           "ZetaChain Toolkit getCctxList failed, returning empty array:",
           error.message
         );
         return [];
       }
-    });
+    }, cacheKey);
   }
 
   /**
@@ -220,25 +301,75 @@ export class ZetaChainToolkitService {
     try {
       return {
         eventType: this._determineEventType(cctx),
-        sourceChain: cctx.inbound_tx_observed_external_height || 0,
-        destinationChain: cctx.outbound_tx_tss_nonce || 0,
-        txHash: cctx.inbound_tx_hash || cctx.index,
+        sourceChain: this._extractSourceChain(cctx),
+        destinationChain: this._extractDestinationChain(cctx),
+        txHash: cctx.inbound_tx_hash || cctx.index || `evt_${Date.now()}`,
         blockNumber: cctx.inbound_tx_observed_external_height || 0,
-        timestamp: cctx.created_at
-          ? new Date(cctx.created_at).getTime() / 1000
-          : Date.now() / 1000,
+        timestamp: this._extractTimestamp(cctx),
         contractAddress: cctx.inbound_tx_sender || "",
         data: {
           amount: cctx.inbound_tx_amount || "0",
           token: cctx.inbound_tx_coin_type || "ZETA",
           recipient: cctx.outbound_tx_receiver || "",
           calldata: cctx.inbound_tx_message || "",
+          gasLimit: cctx.outbound_tx_gas_limit || null,
+          gasPrice: cctx.outbound_tx_gas_price || null,
+          nonce: cctx.outbound_tx_tss_nonce || null,
         },
+        status: this._mapCCTXStatus(cctx.cctx_status),
       };
     } catch (error) {
       console.warn("Failed to transform CCTX to event:", error);
       return null;
     }
+  }
+
+  /**
+   * Extract source chain information from CCTX
+   * @param {Object} cctx - CCTX data
+   * @returns {number} Source chain ID
+   * @private
+   */
+  _extractSourceChain(cctx) {
+    return (
+      cctx.inbound_tx_sender_chain_id ||
+      cctx.source_chain_id ||
+      cctx.inbound_tx_observed_external_height ||
+      0
+    );
+  }
+
+  /**
+   * Extract destination chain information from CCTX
+   * @param {Object} cctx - CCTX data
+   * @returns {number} Destination chain ID
+   * @private
+   */
+  _extractDestinationChain(cctx) {
+    return (
+      cctx.outbound_tx_receiver_chainid ||
+      cctx.destination_chain_id ||
+      cctx.outbound_tx_tss_nonce ||
+      0
+    );
+  }
+
+  /**
+   * Extract timestamp from CCTX data
+   * @param {Object} cctx - CCTX data
+   * @returns {number} Unix timestamp
+   * @private
+   */
+  _extractTimestamp(cctx) {
+    if (cctx.created_at) {
+      return new Date(cctx.created_at).getTime() / 1000;
+    }
+
+    if (cctx.inbound_tx_observed_at) {
+      return new Date(cctx.inbound_tx_observed_at).getTime() / 1000;
+    }
+
+    return Date.now() / 1000;
   }
 
   /**
@@ -264,52 +395,86 @@ export class ZetaChainToolkitService {
   }
 
   /**
-   * Get cross-chain messages
+   * Get cross-chain messages with improved filtering
    * @param {Object} [options] - Query options
    * @param {string} [options.messageId] - Specific message ID
    * @param {number} [options.sourceChain] - Source chain ID
    * @param {number} [options.destinationChain] - Destination chain ID
    * @param {number} [options.limit] - Maximum number of messages
+   * @param {string} [options.status] - Filter by status
    * @returns {Promise<CrossChainMessage[]>} Array of cross-chain messages
    */
   async getCrossChainMessages(options = {}) {
-    const { messageId, sourceChain, destinationChain, limit = 50 } = options;
+    const {
+      messageId,
+      sourceChain,
+      destinationChain,
+      limit = 50,
+      status,
+    } = options;
+    const cacheKey = `cc_messages_${messageId || "all"}_${
+      sourceChain || "all"
+    }_${destinationChain || "all"}_${limit}_${status || "all"}_${
+      this.networkType
+    }`;
 
     return this._executeWithErrorHandling(async () => {
       try {
-        // Get CCTX list and transform to messages
-        const cctxList = await getCctxList({
-          api: this.config.explorerApiUrl,
-          limit,
-        });
+        // Get CCTX list with retry logic
+        let cctxList = [];
+        const maxRetries = 2;
+
+        for (let attempt = 0; attempt <= maxRetries; attempt++) {
+          try {
+            const response = await getCctxList({
+              api: this.config.cosmosApi,
+              limit: Math.min(limit * 2, 1000), // Get more data for filtering
+            });
+
+            cctxList = Array.isArray(response)
+              ? response
+              : response?.cctx || [];
+            break;
+          } catch (error) {
+            if (attempt === maxRetries) {
+              console.warn(
+                "Failed to get CCTX list after retries:",
+                error.message
+              );
+              return [];
+            }
+            await new Promise((resolve) =>
+              setTimeout(resolve, 1000 * (attempt + 1))
+            );
+          }
+        }
 
         const messages = [];
 
-        for (const cctx of cctxList.slice(0, limit)) {
-          // Filter by message ID if specified
-          if (messageId && cctx.index !== messageId) {
-            continue;
-          }
+        for (const cctx of cctxList) {
+          // Apply filters
+          if (messageId && cctx.index !== messageId) continue;
 
-          // Filter by chains if specified
-          if (
-            sourceChain &&
-            cctx.inbound_tx_observed_external_height !== sourceChain
-          ) {
+          if (sourceChain && this._extractSourceChain(cctx) !== sourceChain)
             continue;
-          }
 
           if (
             destinationChain &&
-            cctx.outbound_tx_tss_nonce !== destinationChain
-          ) {
+            this._extractDestinationChain(cctx) !== destinationChain
+          )
             continue;
+
+          if (status) {
+            const mappedStatus = this._mapCCTXStatus(cctx.cctx_status);
+            if (mappedStatus !== status) continue;
           }
 
           const message = this._transformCCTXToMessage(cctx);
           if (message) {
             messages.push(message);
           }
+
+          if (messages.length >= limit) break;
         }
 
         return messages;
@@ -320,7 +485,7 @@ export class ZetaChainToolkitService {
         );
         return [];
       }
-    });
+    }, cacheKey);
   }
 
   /**
@@ -332,9 +497,11 @@ export class ZetaChainToolkitService {
   _transformCCTXToMessage(cctx) {
     try {
       return {
-        messageId: cctx.index || `msg_${Date.now()}`,
-        sourceChain: cctx.inbound_tx_observed_external_height || 0,
-        destinationChain: cctx.outbound_tx_tss_nonce || 0,
+        messageId:
+          cctx.index ||
+          `msg_${Date.now()}_${Math.random().toString(36).substring(2, 11)}`,
+        sourceChain: this._extractSourceChain(cctx),
+        destinationChain: this._extractDestinationChain(cctx),
         messageType: this._determineMessageType(cctx),
         payload: {
           amount: cctx.inbound_tx_amount || "0",
@@ -344,9 +511,7 @@ export class ZetaChainToolkitService {
           data: cctx.inbound_tx_message || "",
         },
         status: this._mapCCTXStatus(cctx.cctx_status),
-        timestamp: cctx.created_at
-          ? new Date(cctx.created_at).getTime() / 1000
-          : Date.now() / 1000,
+        timestamp: this._extractTimestamp(cctx),
         txHash: cctx.inbound_tx_hash || null,
         gasLimit: cctx.outbound_tx_gas_limit || null,
         gasPrice: cctx.outbound_tx_gas_price || null,
@@ -388,26 +553,80 @@ export class ZetaChainToolkitService {
 
     if (
       normalizedStatus.includes("success") ||
-      normalizedStatus.includes("complete")
+      normalizedStatus.includes("complete") ||
+      normalizedStatus.includes("executed")
     ) {
       return "executed";
     }
 
     if (
       normalizedStatus.includes("fail") ||
-      normalizedStatus.includes("error")
+      normalizedStatus.includes("error") ||
+      normalizedStatus.includes("abort")
     ) {
       return "failed";
     }
 
     if (
       normalizedStatus.includes("received") ||
-      normalizedStatus.includes("confirmed")
+      normalizedStatus.includes("confirmed") ||
+      normalizedStatus.includes("observed")
     ) {
       return "received";
     }
 
     return "sent";
+  }
+
+  /**
+   * Get foreign coins (supported tokens) from ZetaChain
+   * @returns {Promise<Array>} Array of foreign coin data
+   */
+  async getForeignCoins() {
+    const cacheKey = `foreign_coins_${this.networkType}`;
+
+    return this._executeWithErrorHandling(async () => {
+      try {
+        const response = await getForeignCoins({
+          api: this.config.cosmosApi,
+        });
+
+        return response || [];
+      } catch (error) {
+        console.warn("Failed to get foreign coins:", error.message);
+        return [];
+      }
+    }, cacheKey);
+  }
+
+  /**
+   * Get address balances using ZetaChain toolkit
+   * @param {string} address - Address to query
+   * @returns {Promise<Array>} Array of balance data
+   */
+  async getAddressBalances(address) {
+    if (!address) {
+      throw new ZetaToolkitError(
+        TOOLKIT_ERROR_TYPES.INVALID_PARAMS,
+        "Address is required"
+      );
+    }
+
+    const cacheKey = `balances_${address}_${this.networkType}`;
+
+    return this._executeWithErrorHandling(async () => {
+      try {
+        const response = await getBalances({
+          address,
+          api: this.config.cosmosApi,
+        });
+
+        return response || [];
+      } catch (error) {
+        console.warn(`Failed to get balances for ${address}:`, error.message);
+        return [];
+      }
+    }, cacheKey);
   }
 
   /**
@@ -417,6 +636,7 @@ export class ZetaChainToolkitService {
    * @param {boolean} [options.includeAddresses] - Include address nodes
    * @param {boolean} [options.includeContracts] - Include contract nodes
    * @param {number} [options.maxNodes] - Maximum number of nodes
+   * @param {number} [options.maxEdges] - Maximum number of edges
    * @returns {GraphData} Normalized graph data
    */
   createGraphDataFromTransactions(transactions, options = {}) {
@@ -424,31 +644,60 @@ export class ZetaChainToolkitService {
       includeAddresses = true,
       includeContracts = true,
       maxNodes = APP_CONFIG.GRAPH.MAX_NODES,
+      maxEdges = APP_CONFIG.GRAPH.MAX_EDGES,
     } = options;
 
     try {
       const nodes = new Map();
       const edges = [];
       const chainNodes = new Set();
+      const addressNodes = new Set();
+
+      // Limit transactions to process
+      const transactionsToProcess = transactions.slice(
+        0,
+        Math.floor(maxNodes / 3)
+      );
 
       // Process each transaction
-      for (const tx of transactions.slice(0, maxNodes / 2)) {
-        // Add chain nodes
-        const sourceChainId = `chain_${tx.sourceChain.chainId}`;
-        const destChainId = `chain_${tx.destinationChain.chainId}`;
+      for (const tx of transactionsToProcess) {
+        if (nodes.size >= maxNodes) break;
 
-        if (!chainNodes.has(sourceChainId)) {
+        // Add chain nodes
+        const sourceChainId = `chain_${tx.sourceChain?.chainId || "unknown"}`;
+        const destChainId = `chain_${
+          tx.destinationChain?.chainId || "unknown"
+        }`;
+
+        if (!chainNodes.has(sourceChainId) && tx.sourceChain) {
           nodes.set(sourceChainId, this._createChainNode(tx.sourceChain));
           chainNodes.add(sourceChainId);
         }
 
-        if (!chainNodes.has(destChainId)) {
+        if (
+          !chainNodes.has(destChainId) &&
+          tx.destinationChain &&
+          destChainId !== sourceChainId
+        ) {
           nodes.set(destChainId, this._createChainNode(tx.destinationChain));
           chainNodes.add(destChainId);
         }
 
+        // Add address nodes if enabled
+        if (includeAddresses) {
+          if (tx.from && !addressNodes.has(tx.from) && nodes.size < maxNodes) {
+            nodes.set(`addr_${tx.from}`, this._createAddressNode(tx.from));
+            addressNodes.add(tx.from);
+          }
+
+          if (tx.to && !addressNodes.has(tx.to) && nodes.size < maxNodes) {
+            nodes.set(`addr_${tx.to}`, this._createAddressNode(tx.to));
+            addressNodes.add(tx.to);
+          }
+        }
+
         // Add contract nodes if enabled
-        if (includeContracts && tx.omnichainContract) {
+        if (includeContracts && tx.omnichainContract && nodes.size < maxNodes) {
           const contractId = `contract_${tx.omnichainContract}`;
           if (!nodes.has(contractId)) {
             nodes.set(
@@ -459,20 +708,17 @@ export class ZetaChainToolkitService {
         }
 
         // Create edge for the transaction
-        const edgeId = `edge_${tx.txHash}`;
-        edges.push(
-          this._createTransactionEdge(edgeId, sourceChainId, destChainId, tx)
-        );
-
-        // Stop if we've reached max nodes
-        if (nodes.size >= maxNodes) {
-          break;
+        if (edges.length < maxEdges) {
+          const edgeId = `edge_${tx.txHash || Date.now()}_${edges.length}`;
+          edges.push(
+            this._createTransactionEdge(edgeId, sourceChainId, destChainId, tx)
+          );
         }
       }
 
       return {
         nodes: Array.from(nodes.values()),
-        edges: edges.slice(0, APP_CONFIG.GRAPH.MAX_EDGES),
+        edges: edges.slice(0, maxEdges),
       };
     } catch (error) {
       throw new ZetaToolkitError(
@@ -493,13 +739,37 @@ export class ZetaChainToolkitService {
     return {
       id: `chain_${chainInfo.chainId}`,
       type: "chain",
-      label: chainInfo.name,
+      label: chainInfo.name || `Chain ${chainInfo.chainId}`,
       data: chainInfo,
       style: {
         backgroundColor: this._getChainColor(chainInfo.chainId),
         borderColor: "#ffffff",
         borderWidth: 2,
         size: 60,
+      },
+    };
+  }
+
+  /**
+   * Create address node for graph
+   * @param {string} address - Address
+   * @returns {GraphNode} Address node
+   * @private
+   */
+  _createAddressNode(address) {
+    return {
+      id: `addr_${address}`,
+      type: "address",
+      label: `${address.slice(0, 8)}...${address.slice(-6)}`,
+      data: {
+        address,
+        type: "wallet",
+      },
+      style: {
+        backgroundColor: APP_CONFIG.COLORS.DARK.SURFACE_VARIANT,
+        borderColor: APP_CONFIG.COLORS.DARK.PRIMARY,
+        borderWidth: 1,
+        size: 30,
       },
     };
   }
@@ -520,7 +790,10 @@ export class ZetaChainToolkitService {
         address: contractAddress,
         name: "Omnichain Contract",
         contractType: "omnichain",
-        supportedChains: [tx.sourceChain.chainId, tx.destinationChain.chainId],
+        supportedChains: [
+          tx.sourceChain?.chainId,
+          tx.destinationChain?.chainId,
+        ].filter(Boolean),
       },
       style: {
         backgroundColor: APP_CONFIG.COLORS.DARK.SECONDARY,
@@ -546,16 +819,16 @@ export class ZetaChainToolkitService {
       source: sourceId,
       target: targetId,
       data: {
-        txHash: tx.txHash,
-        blockNumber: 0,
-        timestamp: tx.timestamp,
-        from: "",
-        to: "",
-        value: tx.amount,
-        gasUsed: "0",
-        gasPrice: "0",
-        status: tx.status,
-        chainId: tx.sourceChain.chainId,
+        txHash: tx.txHash || "",
+        blockNumber: tx.blockNumber || 0,
+        timestamp: tx.timestamp || Math.floor(Date.now() / 1000),
+        from: tx.from || "",
+        to: tx.to || "",
+        value: tx.amount || "0",
+        gasUsed: tx.gasUsed || "0",
+        gasPrice: tx.gasPrice || "0",
+        status: tx.status || "pending",
+        chainId: tx.sourceChain?.chainId || 0,
         crossChainData: {
           sourceChain: tx.sourceChain,
           destinationChain: tx.destinationChain,
@@ -586,6 +859,8 @@ export class ZetaChainToolkitService {
       "#8247E5", // Polygon purple
       "#0052FF", // Base blue
       "#00D4AA", // ZetaChain teal
+      "#FF6B35", // Arbitrum orange
+      "#E84142", // Avalanche red
     ];
 
     return colors[chainId % colors.length] || APP_CONFIG.COLORS.DARK.PRIMARY;
@@ -593,20 +868,31 @@ export class ZetaChainToolkitService {
 
   /**
    * Get color for transaction status
-   * @param {'pending'|'completed'|'failed'} status - Transaction status
+   * @param {'pending'|'completed'|'failed'|'executed'|'sent'|'received'} status - Transaction status
    * @returns {string} Color hex code
    * @private
    */
   _getStatusColor(status) {
     switch (status) {
       case "completed":
+      case "executed":
         return APP_CONFIG.COLORS.DARK.SUCCESS;
       case "failed":
         return APP_CONFIG.COLORS.DARK.ERROR;
+      case "received":
+        return APP_CONFIG.COLORS.DARK.ACCENT;
       case "pending":
+      case "sent":
       default:
         return APP_CONFIG.COLORS.DARK.WARNING;
     }
+  }
+
+  /**
+   * Clear request cache
+   */
+  clearCache() {
+    this.requestCache.clear();
   }
 
   /**
@@ -638,3 +924,29 @@ export const zetaToolkitTestnet = new ZetaChainToolkitService("testnet");
 export function getZetaToolkitService(networkType) {
   return networkType === "mainnet" ? zetaToolkitMainnet : zetaToolkitTestnet;
 }
+
+/**
+ * React Query key factory for ZetaChain Toolkit calls
+ */
+export const zetaToolkitQueryKeys = {
+  all: ["zeta-toolkit"],
+  omnichainEvents: (networkType, options) => [
+    "zeta-toolkit",
+    networkType,
+    "omnichain-events",
+    options,
+  ],
+  crossChainMessages: (networkType, options) => [
+    "zeta-toolkit",
+    networkType,
+    "cc-messages",
+    options,
+  ],
+  foreignCoins: (networkType) => ["zeta-toolkit", networkType, "foreign-coins"],
+  addressBalances: (networkType, address) => [
+    "zeta-toolkit",
+    networkType,
+    "balances",
+    address,
+  ],
+};

@@ -8,13 +8,27 @@ import {
   StatusIndicator,
   StatusBadge,
 } from "@/components/ui";
+import { SearchContainer } from "@/components/search";
 
 export default function Home() {
   const [networkMode, setNetworkMode] = useState("testnet");
+  const [selectedTransaction, setSelectedTransaction] = useState(null);
+  const [showVisualization, setShowVisualization] = useState(false);
 
   const handleNetworkToggle = (network) => {
     setNetworkMode(network);
     console.log("Network switched to:", network);
+  };
+
+  const handleSearchResult = (result) => {
+    setSelectedTransaction(result);
+    setShowVisualization(true);
+    console.log("Search result selected:", result);
+  };
+
+  const handleResultSelect = (transaction) => {
+    console.log("Transaction selected for visualization:", transaction);
+    // This would trigger the graph visualization
   };
 
   return (
@@ -84,27 +98,105 @@ export default function Home() {
             {/* Visualization Area */}
             <div className="lg:col-span-3">
               <div className="bg-white border border-gray-200 rounded-lg h-full relative overflow-hidden">
-                <div className="absolute inset-0 flex items-center justify-center">
-                  <div className="text-center space-y-4">
-                    <div className="w-16 h-16 border-4 border-black border-t-transparent rounded-full animate-spin mx-auto"></div>
-                    <p className="text-gray-600">
-                      Initializing ZetaFlow Visualizer...
-                    </p>
-                    <p className="text-sm text-gray-500">
-                      Setting up blockchain connections and visualization engine
-                    </p>
-                    <div className="flex justify-center gap-2 mt-4">
-                      <StatusBadge status="success" text="RPC Connected" />
-                      <StatusBadge status="pending" text="Loading Graph" />
+                {!showVisualization ? (
+                  /* Search Interface */
+                  <div className="p-8 h-full flex flex-col">
+                    <div className="text-center mb-8">
+                      <h1 className="text-3xl font-bold text-black mb-2">
+                        ZetaFlow Visualizer
+                      </h1>
+                      <p className="text-gray-600 text-lg">
+                        Explore ZetaChain cross-chain transactions and
+                        connections
+                      </p>
+                    </div>
+
+                    <div className="flex-1 flex items-center justify-center">
+                      <div className="w-full max-w-2xl">
+                        <SearchContainer
+                          networkType={networkMode}
+                          onResultSelect={handleResultSelect}
+                          onSearchComplete={handleSearchResult}
+                        />
+                      </div>
+                    </div>
+
+                    <div className="text-center text-sm text-gray-500 mt-8 space-y-2">
+                      <p>
+                        Enter a transaction hash or wallet address to start
+                        visualizing cross-chain flows
+                      </p>
+                      <p>
+                        <a
+                          href="/search-demo"
+                          className="text-blue-600 hover:text-blue-700 underline"
+                        >
+                          View Search Demo →
+                        </a>
+                      </p>
                     </div>
                   </div>
-                </div>
+                ) : (
+                  /* Visualization Interface */
+                  <div className="h-full relative">
+                    {/* Visualization Header */}
+                    <div className="absolute top-0 left-0 right-0 z-10 bg-white border-b border-gray-200 p-4">
+                      <div className="flex items-center justify-between">
+                        <div className="flex items-center gap-4">
+                          <Button
+                            variant="outline"
+                            size="sm"
+                            onClick={() => setShowVisualization(false)}
+                          >
+                            ← Back to Search
+                          </Button>
+                          <div className="text-sm text-gray-600">
+                            {selectedTransaction && (
+                              <span>
+                                Visualizing:{" "}
+                                {selectedTransaction.metadata?.totalResults ||
+                                  0}{" "}
+                                transaction(s)
+                              </span>
+                            )}
+                          </div>
+                        </div>
+                        <div className="flex items-center gap-2">
+                          <Button variant="outline" size="sm">
+                            Reset View
+                          </Button>
+                          <ActionButton color="blue" size="sm">
+                            Export
+                          </ActionButton>
+                        </div>
+                      </div>
+                    </div>
 
-                {/* Placeholder for Cytoscape container */}
-                <div
-                  id="cy-container"
-                  className="w-full h-full opacity-0 transition-opacity duration-500"
-                ></div>
+                    {/* Cytoscape Container */}
+                    <div
+                      id="cy-container"
+                      className="w-full h-full pt-16"
+                      style={{ minHeight: "600px" }}
+                    >
+                      {/* Placeholder for now - will be replaced with actual Cytoscape integration */}
+                      <div className="flex items-center justify-center h-full">
+                        <div className="text-center space-y-4">
+                          <div className="w-16 h-16 border-4 border-black border-t-transparent rounded-full animate-spin mx-auto"></div>
+                          <p className="text-gray-600">
+                            Loading visualization...
+                          </p>
+                          <div className="flex justify-center gap-2">
+                            <StatusBadge status="success" text="Data Loaded" />
+                            <StatusBadge
+                              status="pending"
+                              text="Rendering Graph"
+                            />
+                          </div>
+                        </div>
+                      </div>
+                    </div>
+                  </div>
+                )}
               </div>
             </div>
           </div>

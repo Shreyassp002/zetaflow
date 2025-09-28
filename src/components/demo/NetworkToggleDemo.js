@@ -49,7 +49,10 @@ export default function NetworkToggleDemo() {
             <div className="pt-4 border-t border-gray-200">
               <h3 className="font-medium text-black mb-2">Instructions:</h3>
               <ul className="text-sm text-gray-600 space-y-1">
-                <li>• Click "Testnet" or "Mainnet" buttons in the header</li>
+                <li>
+                  • Click &quot;Testnet&quot; or &quot;Mainnet&quot; buttons in
+                  the header
+                </li>
                 <li>• The active button will have a black background</li>
                 <li>• The network state will update in real-time</li>
                 <li>• Check the browser console for toggle events</li>

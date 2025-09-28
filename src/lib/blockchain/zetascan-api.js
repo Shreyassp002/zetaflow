@@ -1,5 +1,5 @@
 /**
- * @fileoverview ZetaScan Explorer API service for cross-chain transaction data
+ * @fileoverview ZetaChain Explorer API service using Blockscout API
  * Provides API client with React Query caching for performance optimization
  */
 
@@ -12,10 +12,10 @@ import { ZETACHAIN_CONFIG, APP_CONFIG } from "../config.js";
  */
 
 /**
- * ZetaScan API error types
+ * ZetaChain Explorer API error types
  * @enum {string}
  */
-export const ZETASCAN_ERROR_TYPES = {
+export const ZETACHAIN_EXPLORER_ERROR_TYPES = {
   API_ERROR: "API_ERROR",
   NOT_FOUND: "NOT_FOUND",
   RATE_LIMITED: "RATE_LIMITED",
@@ -26,18 +26,18 @@ export const ZETASCAN_ERROR_TYPES = {
 };
 
 /**
- * Custom ZetaScan API error class
+ * Custom ZetaChain Explorer API error class
  */
-export class ZetaScanAPIError extends Error {
+export class ZetaChainExplorerAPIError extends Error {
   /**
-   * @param {string} type - Error type from ZETASCAN_ERROR_TYPES
+   * @param {string} type - Error type from ZETACHAIN_EXPLORER_ERROR_TYPES
    * @param {string} message - Error message
    * @param {number} [statusCode] - HTTP status code
    * @param {any} [originalError] - Original error object
    */
   constructor(type, message, statusCode = null, originalError = null) {
     super(message);
-    this.name = "ZetaScanAPIError";
+    this.name = "ZetaChainExplorerAPIError";
     this.type = type;
     this.statusCode = statusCode;
     this.originalError = originalError;
@@ -46,9 +46,9 @@ export class ZetaScanAPIError extends Error {
 }
 
 /**
- * ZetaScan Explorer API service class
+ * ZetaChain Explorer API service class (Blockscout-based)
  */
-export class ZetaScanAPIService {
+export class ZetaChainExplorerAPIService {
   /**
    * @param {'mainnet'|'testnet'} networkType - Network type
    */
@@ -71,7 +71,7 @@ export class ZetaScanAPIService {
     this.networkType = networkType;
     this.config = ZETACHAIN_CONFIG[networkType];
     this.baseURL = this.config.explorerApiUrl;
-    this.requestCache.clear(); // Clear cache when switching networks
+    this.requestCache.clear();
   }
 
   /**
@@ -103,8 +103,7 @@ export class ZetaScanAPIService {
     // Check cache for GET requests
     if (cacheKey && this.requestCache.has(cacheKey)) {
       const cached = this.requestCache.get(cacheKey);
-      if (Date.now() - cached.timestamp < 30000) {
-        // 30 second cache
+      if (Date.now() - cached.timestamp < APP_CONFIG.API.CACHE_DURATION) {
         return cached.data;
       }
       this.requestCache.delete(cacheKey);
@@ -120,20 +119,30 @@ export class ZetaScanAPIService {
           APP_CONFIG.API.REQUEST_TIMEOUT
         );
 
-        const response = await fetch(url.toString(), {
+        // Create timeout promise to race with fetch
+        const timeoutPromise = new Promise((_, reject) => {
+          setTimeout(() => {
+            controller.abort();
+            reject(new Error("Request timeout"));
+          }, APP_CONFIG.API.REQUEST_TIMEOUT);
+        });
+
+        const fetchPromise = fetch(url.toString(), {
           method,
           headers: {
             "Content-Type": "application/json",
             Accept: "application/json",
+            "User-Agent": "ZetaFlow/1.0",
             ...headers,
           },
           signal: controller.signal,
         });
 
+        const response = await Promise.race([fetchPromise, timeoutPromise]);
         clearTimeout(timeoutId);
 
         if (!response.ok) {
-          throw new ZetaScanAPIError(
+          throw new ZetaChainExplorerAPIError(
             this._mapStatusCodeToErrorType(response.status),
             `API request failed: ${response.status} ${response.statusText}`,
             response.status
@@ -156,12 +165,12 @@ export class ZetaScanAPIService {
 
         // Don't retry on certain error types
         if (this._isNonRetryableError(error)) {
-          throw error;
+          throw this._mapError(error);
         }
 
-        // Wait before retry (exponential backoff)
+        // Wait before retry (shorter delay for faster failures)
         if (attempt < maxRetries) {
-          const delay = APP_CONFIG.API.RETRY_DELAY * Math.pow(2, attempt);
+          const delay = APP_CONFIG.API.RETRY_DELAY * (attempt + 1);
           await new Promise((resolve) => setTimeout(resolve, delay));
         }
       }
@@ -180,18 +189,18 @@ export class ZetaScanAPIService {
     switch (statusCode) {
       case 400:
       case 422:
-        return ZETASCAN_ERROR_TYPES.INVALID_PARAMS;
+        return ZETACHAIN_EXPLORER_ERROR_TYPES.INVALID_PARAMS;
       case 404:
-        return ZETASCAN_ERROR_TYPES.NOT_FOUND;
+        return ZETACHAIN_EXPLORER_ERROR_TYPES.NOT_FOUND;
       case 429:
-        return ZETASCAN_ERROR_TYPES.RATE_LIMITED;
+        return ZETACHAIN_EXPLORER_ERROR_TYPES.RATE_LIMITED;
       case 500:
       case 502:
       case 503:
       case 504:
-        return ZETASCAN_ERROR_TYPES.API_ERROR;
+        return ZETACHAIN_EXPLORER_ERROR_TYPES.API_ERROR;
       default:
-        return ZETASCAN_ERROR_TYPES.UNKNOWN_ERROR;
+        return ZETACHAIN_EXPLORER_ERROR_TYPES.UNKNOWN_ERROR;
     }
   }
 
@@ -202,52 +211,72 @@ export class ZetaScanAPIService {
    * @private
    */
   _isNonRetryableError(error) {
-    if (error instanceof ZetaScanAPIError) {
+    if (error instanceof ZetaChainExplorerAPIError) {
       return (
-        error.type === ZETASCAN_ERROR_TYPES.INVALID_PARAMS ||
-        error.type === ZETASCAN_ERROR_TYPES.NOT_FOUND ||
+        error.type === ZETACHAIN_EXPLORER_ERROR_TYPES.INVALID_PARAMS ||
+        error.type === ZETACHAIN_EXPLORER_ERROR_TYPES.NOT_FOUND ||
         (error.statusCode && error.statusCode >= 400 && error.statusCode < 500)
       );
     }
 
+    const errorMessage = error.message?.toLowerCase() || "";
+
     return (
-      error.name === "AbortError" || // Timeout
-      error.message?.includes("invalid") ||
-      error.message?.includes("not found")
+      errorMessage.includes("invalid") ||
+      errorMessage.includes("not found") ||
+      errorMessage.includes("bad request") ||
+      (error.statusCode && error.statusCode >= 400 && error.statusCode < 500)
     );
   }
 
   /**
-   * Map generic error to ZetaScanAPIError
+   * Map generic error to ZetaChainExplorerAPIError
    * @param {Error} error - Original error
-   * @returns {ZetaScanAPIError} Mapped error
+   * @returns {ZetaChainExplorerAPIError} Mapped error
    * @private
    */
   _mapError(error) {
-    if (error instanceof ZetaScanAPIError) {
+    if (error instanceof ZetaChainExplorerAPIError) {
       return error;
     }
 
-    if (error.name === "AbortError") {
-      return new ZetaScanAPIError(
-        ZETASCAN_ERROR_TYPES.TIMEOUT,
+    const errorMessage = error.message?.toLowerCase() || "";
+
+    if (error.name === "AbortError" || errorMessage.includes("timeout")) {
+      return new ZetaChainExplorerAPIError(
+        ZETACHAIN_EXPLORER_ERROR_TYPES.TIMEOUT,
         "API request timed out",
         null,
         error
       );
     }
 
-    if (error.message?.includes("fetch")) {
-      return new ZetaScanAPIError(
-        ZETASCAN_ERROR_TYPES.NETWORK_ERROR,
+    if (
+      errorMessage.includes("fetch") ||
+      errorMessage.includes("network") ||
+      errorMessage.includes("connection") ||
+      errorMessage.includes("failed to fetch") ||
+      error.code === "NETWORK_ERROR"
+    ) {
+      return new ZetaChainExplorerAPIError(
+        ZETACHAIN_EXPLORER_ERROR_TYPES.NETWORK_ERROR,
         "Network error occurred",
         null,
         error
       );
     }
 
-    return new ZetaScanAPIError(
-      ZETASCAN_ERROR_TYPES.UNKNOWN_ERROR,
+    if (errorMessage.includes("not found")) {
+      return new ZetaChainExplorerAPIError(
+        ZETACHAIN_EXPLORER_ERROR_TYPES.NOT_FOUND,
+        "Resource not found",
+        null,
+        error
+      );
+    }
+
+    return new ZetaChainExplorerAPIError(
+      ZETACHAIN_EXPLORER_ERROR_TYPES.UNKNOWN_ERROR,
       error.message || "Unknown API error",
       null,
       error
@@ -255,218 +284,170 @@ export class ZetaScanAPIService {
   }
 
   /**
-   * Transform API transaction data to CrossChainTransaction format
-   * @param {Object} apiTransaction - Raw API transaction data
+   * Transform Blockscout transaction data to CrossChainTransaction format
+   * @param {Object} apiTransaction - Raw API transaction data from Blockscout
    * @returns {CrossChainTransaction} Formatted cross-chain transaction
    * @private
    */
   _transformCrossChainTransaction(apiTransaction) {
+    // Parse transaction logs for cross-chain events
+    const crossChainLogs = this._extractCrossChainLogs(
+      apiTransaction.logs || []
+    );
+
     return {
-      txHash: apiTransaction.hash || apiTransaction.tx_hash,
+      txHash: apiTransaction.hash,
       sourceChain: {
-        chainId: apiTransaction.source_chain_id || apiTransaction.from_chain_id,
-        name: apiTransaction.source_chain_name || "Unknown",
-        rpcUrl: "",
-        explorerUrl: "",
+        chainId: this.config.chainId,
+        name: this.config.name,
+        rpcUrl: this.config.rpcUrl,
+        explorerUrl: this.config.explorerUrl,
         nativeCurrency: {
-          name: apiTransaction.source_token_symbol || "ETH",
-          symbol: apiTransaction.source_token_symbol || "ETH",
+          name: this.config.symbol,
+          symbol: this.config.symbol,
           decimals: 18,
         },
       },
-      destinationChain: {
-        chainId:
-          apiTransaction.destination_chain_id || apiTransaction.to_chain_id,
-        name: apiTransaction.destination_chain_name || "Unknown",
+      destinationChain: crossChainLogs.destinationChain || {
+        chainId: null,
+        name: "Unknown",
         rpcUrl: "",
         explorerUrl: "",
         nativeCurrency: {
-          name: apiTransaction.destination_token_symbol || "ETH",
-          symbol: apiTransaction.destination_token_symbol || "ETH",
+          name: "ETH",
+          symbol: "ETH",
           decimals: 18,
         },
       },
-      omnichainContract: apiTransaction.omnichain_contract || null,
-      crossChainMessages: apiTransaction.messages || [],
-      status: this._mapTransactionStatus(apiTransaction.status),
-      timestamp:
-        apiTransaction.timestamp ||
-        apiTransaction.block_time ||
-        Date.now() / 1000,
-      tokenInfo: apiTransaction.token
-        ? {
-            address: apiTransaction.token.address,
-            symbol: apiTransaction.token.symbol,
-            decimals: apiTransaction.token.decimals || 18,
-            amount: apiTransaction.amount || "0",
-          }
-        : null,
-      amount: apiTransaction.amount || apiTransaction.value || "0",
+      omnichainContract: apiTransaction.to?.hash || null,
+      crossChainMessages: crossChainLogs.messages,
+      status: this._mapTransactionStatus(
+        apiTransaction.status,
+        apiTransaction.result
+      ),
+      timestamp: apiTransaction.timestamp
+        ? new Date(apiTransaction.timestamp).getTime() / 1000
+        : Date.now() / 1000,
+      tokenInfo: crossChainLogs.tokenInfo,
+      amount: apiTransaction.value || "0",
       confirmations: apiTransaction.confirmations || 0,
+      gasUsed: apiTransaction.gas_used || "0",
+      gasPrice: apiTransaction.gas_price || "0",
+      from: apiTransaction.from?.hash || "",
+      to: apiTransaction.to?.hash || "",
+      blockNumber: apiTransaction.block_number || 0,
     };
   }
 
   /**
-   * Map API transaction status to standard format
-   * @param {string} status - API status
+   * Extract cross-chain information from transaction logs
+   * @param {Array} logs - Transaction logs
+   * @returns {Object} Extracted cross-chain data
+   * @private
+   */
+  _extractCrossChainLogs(logs) {
+    const crossChainData = {
+      destinationChain: null,
+      messages: [],
+      tokenInfo: null,
+    };
+
+    // Look for common cross-chain event signatures
+    const CROSS_CHAIN_SIGNATURES = [
+      "0x7ec1c94701e09b1652f3e1d307e60c4b9ebf99aff8c2079fd1d8c585e031c4e4", // Example signature
+      // Add more known ZetaChain cross-chain event signatures
+    ];
+
+    for (const log of logs) {
+      if (log.topics && log.topics.length > 0) {
+        const signature = log.topics[0];
+
+        if (CROSS_CHAIN_SIGNATURES.includes(signature)) {
+          // Parse cross-chain event data
+          try {
+            // This would need actual ABI decoding for real implementation
+            crossChainData.messages.push({
+              type: "cross_chain_call",
+              data: log.data,
+              topics: log.topics,
+            });
+          } catch (error) {
+            console.warn("Failed to parse cross-chain log:", error);
+          }
+        }
+      }
+    }
+
+    return crossChainData;
+  }
+
+  /**
+   * Map Blockscout transaction status to standard format
+   * @param {string} status - Transaction status
+   * @param {string} result - Transaction result
    * @returns {'pending'|'completed'|'failed'} Mapped status
    * @private
    */
-  _mapTransactionStatus(status) {
-    if (!status) return "pending";
-
-    const normalizedStatus = status.toLowerCase();
-
-    if (
-      normalizedStatus.includes("success") ||
-      normalizedStatus.includes("complete")
-    ) {
-      return "completed";
-    }
-
-    if (
-      normalizedStatus.includes("fail") ||
-      normalizedStatus.includes("error")
-    ) {
-      return "failed";
-    }
-
+  _mapTransactionStatus(status, result) {
+    if (status === "pending" || status === "queued") return "pending";
+    if (status === "ok" || result === "success") return "completed";
+    if (status === "error" || result === "error") return "failed";
     return "pending";
   }
 
   /**
-   * Get cross-chain transactions from ZetaScan API
+   * Get recent transactions from ZetaChain
    * @param {Object} [options] - Query options
-   * @param {number} [options.page] - Page number (default: 1)
-   * @param {number} [options.limit] - Results per page (default: 20)
-   * @param {string} [options.address] - Filter by address
-   * @param {number} [options.sourceChain] - Filter by source chain ID
-   * @param {number} [options.destinationChain] - Filter by destination chain ID
-   * @returns {Promise<CrossChainTransaction[]>} Array of cross-chain transactions
+   * @param {string} [options.filter] - Transaction filter type
+   * @param {string} [options.type] - Transaction type filter
+   * @param {string} [options.method] - Transaction method filter
+   * @returns {Promise<CrossChainTransaction[]>} Array of transactions
    */
-  async getCrossChainTransactions(options = {}) {
-    const {
-      page = 1,
-      limit = 20,
-      address,
-      sourceChain,
-      destinationChain,
-    } = options;
+  async getTransactions(options = {}) {
+    const { filter = "validated", type, method } = options;
 
-    const params = {
-      page,
-      limit,
-    };
-
-    if (address) params.address = address;
-    if (sourceChain) params.source_chain = sourceChain;
-    if (destinationChain) params.destination_chain = destinationChain;
+    const params = { filter };
+    if (type) params.type = type;
+    if (method) params.method = method;
 
     try {
-      const response = await this._makeRequest("/cross-chain-transactions", {
-        params,
-      });
+      const response = await this._makeRequest("/transactions", { params });
 
-      const transactions = response.data || response.transactions || [];
-      return transactions.map((tx) => this._transformCrossChainTransaction(tx));
+      const transactions = response.items || [];
+      return transactions
+        .filter((tx) => this._isCrossChainTransaction(tx))
+        .map((tx) => this._transformCrossChainTransaction(tx));
     } catch (error) {
-      // If the specific endpoint doesn't exist, try alternative endpoints
-      if (error.type === ZETASCAN_ERROR_TYPES.NOT_FOUND) {
-        return this._getCrossChainTransactionsFallback(options);
-      }
-      throw error;
+      console.warn("Failed to fetch transactions:", error);
+      return [];
     }
   }
 
   /**
-   * Fallback method for getting cross-chain transactions
-   * @param {Object} options - Query options
-   * @returns {Promise<CrossChainTransaction[]>} Array of cross-chain transactions
+   * Check if transaction is a cross-chain transaction
+   * @param {Object} transaction - Transaction object
+   * @returns {boolean} Whether transaction is cross-chain
    * @private
    */
-  async _getCrossChainTransactionsFallback(options) {
-    // Try alternative API endpoints that might exist
-    const endpoints = [
-      "/transactions/cross-chain",
-      "/omnichain/transactions",
-      "/bridge/transactions",
+  _isCrossChainTransaction(transaction) {
+    // Check for cross-chain indicators
+    if (!transaction.logs || transaction.logs.length === 0) return false;
+
+    // Look for cross-chain contract addresses or event signatures
+    const crossChainIndicators = [
+      "omnichain",
+      "cross_chain",
+      "bridge",
+      // Add known ZetaChain cross-chain contract addresses
     ];
 
-    for (const endpoint of endpoints) {
-      try {
-        const response = await this._makeRequest(endpoint, {
-          params: options,
-        });
-
-        const transactions =
-          response.data || response.transactions || response.results || [];
-        return transactions.map((tx) =>
-          this._transformCrossChainTransaction(tx)
-        );
-      } catch (error) {
-        // Continue to next endpoint if this one fails
-        continue;
-      }
-    }
-
-    // If all endpoints fail, return empty array
-    console.warn(
-      "No cross-chain transaction endpoints available, returning empty array"
+    return crossChainIndicators.some(
+      (indicator) =>
+        transaction.to?.hash?.toLowerCase().includes(indicator) ||
+        transaction.logs.some((log) =>
+          log.address?.hash?.toLowerCase().includes(indicator)
+        )
     );
-    return [];
-  }
-
-  /**
-   * Get cross-chain transaction history for a specific address
-   * @param {string} address - Address to query
-   * @param {Object} [options] - Query options
-   * @param {number} [options.page] - Page number (default: 1)
-   * @param {number} [options.limit] - Results per page (default: 50)
-   * @param {number} [options.fromBlock] - Starting block number
-   * @param {number} [options.toBlock] - Ending block number
-   * @returns {Promise<CrossChainTransaction[]>} Array of cross-chain transactions for address
-   */
-  async getAddressCrossChainHistory(address, options = {}) {
-    if (!address || typeof address !== "string") {
-      throw new ZetaScanAPIError(
-        ZETASCAN_ERROR_TYPES.INVALID_PARAMS,
-        "Address parameter is required and must be a string"
-      );
-    }
-
-    const { page = 1, limit = 50, fromBlock, toBlock } = options;
-
-    const params = {
-      address: address.toLowerCase(),
-      page,
-      limit,
-    };
-
-    if (fromBlock) params.from_block = fromBlock;
-    if (toBlock) params.to_block = toBlock;
-
-    try {
-      const response = await this._makeRequest(
-        `/address/${address}/cross-chain`,
-        {
-          params,
-        }
-      );
-
-      const transactions = response.data || response.transactions || [];
-      return transactions.map((tx) => this._transformCrossChainTransaction(tx));
-    } catch (error) {
-      // If specific endpoint doesn't exist, try getting all cross-chain transactions and filter
-      if (error.type === ZETASCAN_ERROR_TYPES.NOT_FOUND) {
-        const allTransactions = await this.getCrossChainTransactions({
-          address,
-          page,
-          limit,
-        });
-        return allTransactions;
-      }
-      throw error;
-    }
   }
 
   /**
@@ -476,24 +457,22 @@ export class ZetaScanAPIService {
    */
   async getTransactionDetails(txHash) {
     if (!txHash || typeof txHash !== "string") {
-      throw new ZetaScanAPIError(
-        ZETASCAN_ERROR_TYPES.INVALID_PARAMS,
+      throw new ZetaChainExplorerAPIError(
+        ZETACHAIN_EXPLORER_ERROR_TYPES.INVALID_PARAMS,
         "Transaction hash is required and must be a string"
       );
     }
 
     try {
-      const response = await this._makeRequest(`/transaction/${txHash}`);
+      const response = await this._makeRequest(`/transactions/${txHash}`);
 
-      if (response.data || response.transaction) {
-        return this._transformCrossChainTransaction(
-          response.data || response.transaction
-        );
+      if (this._isCrossChainTransaction(response)) {
+        return this._transformCrossChainTransaction(response);
       }
 
-      return null;
+      return null; // Not a cross-chain transaction
     } catch (error) {
-      if (error.type === ZETASCAN_ERROR_TYPES.NOT_FOUND) {
+      if (error.type === ZETACHAIN_EXPLORER_ERROR_TYPES.NOT_FOUND) {
         return null;
       }
       throw error;
@@ -501,24 +480,72 @@ export class ZetaScanAPIService {
   }
 
   /**
-   * Get network statistics
+   * Get address transaction history
+   * @param {string} address - Address to query
+   * @param {Object} [options] - Query options
+   * @param {string} [options.filter] - Filter type (to, from, or null for all)
+   * @param {number} [options.page] - Page number
+   * @returns {Promise<CrossChainTransaction[]>} Array of transactions for address
+   */
+  async getAddressTransactions(address, options = {}) {
+    if (!address || typeof address !== "string") {
+      throw new ZetaChainExplorerAPIError(
+        ZETACHAIN_EXPLORER_ERROR_TYPES.INVALID_PARAMS,
+        "Address parameter is required and must be a string"
+      );
+    }
+
+    const { filter, page = 1 } = options;
+    const params = {};
+    if (filter) params.filter = filter;
+    if (page > 1) params.page = page;
+
+    try {
+      const response = await this._makeRequest(
+        `/addresses/${address}/transactions`,
+        { params }
+      );
+
+      const transactions = response.items || [];
+      return transactions
+        .filter((tx) => this._isCrossChainTransaction(tx))
+        .map((tx) => this._transformCrossChainTransaction(tx));
+    } catch (error) {
+      console.warn(
+        `Failed to fetch transactions for address ${address}:`,
+        error
+      );
+      return [];
+    }
+  }
+
+  /**
+   * Get network statistics from Blockscout
    * @returns {Promise<Object>} Network statistics
    */
   async getNetworkStats() {
     try {
       const response = await this._makeRequest("/stats");
-      return response.data || response;
+      return {
+        totalTransactions: response.total_transactions || "0",
+        totalBlocks: response.total_blocks || "0",
+        averageBlockTime: response.average_block_time || 0,
+        totalAddresses: response.total_addresses || "0",
+        networkType: this.networkType,
+        chainId: this.config.chainId,
+        ...response,
+      };
     } catch (error) {
       // Return default stats if endpoint doesn't exist
-      if (error.type === ZETASCAN_ERROR_TYPES.NOT_FOUND) {
-        return {
-          totalTransactions: 0,
-          crossChainTransactions: 0,
-          connectedChains: this.config.connectedChains.length,
-          networkType: this.networkType,
-        };
-      }
-      throw error;
+      return {
+        totalTransactions: "0",
+        totalBlocks: "0",
+        averageBlockTime: 0,
+        totalAddresses: "0",
+        networkType: this.networkType,
+        chainId: this.config.chainId,
+        connectedChains: this.config.connectedChains.length,
+      };
     }
   }
 
@@ -535,7 +562,7 @@ export class ZetaScanAPIService {
    */
   async isHealthy() {
     try {
-      await this._makeRequest("/health");
+      await this._makeRequest("/stats");
       return true;
     } catch (error) {
       return false;
@@ -546,41 +573,51 @@ export class ZetaScanAPIService {
 /**
  * Create and export singleton instances for both networks
  */
-export const zetaScanMainnet = new ZetaScanAPIService("mainnet");
-export const zetaScanTestnet = new ZetaScanAPIService("testnet");
+export const zetaChainMainnetExplorer = new ZetaChainExplorerAPIService(
+  "mainnet"
+);
+export const zetaChainTestnetExplorer = new ZetaChainExplorerAPIService(
+  "testnet"
+);
 
 /**
- * Get ZetaScan API service instance for network type
+ * Get ZetaChain Explorer API service instance for network type
  * @param {'mainnet'|'testnet'} networkType - Network type
- * @returns {ZetaScanAPIService} API service instance
+ * @returns {ZetaChainExplorerAPIService} API service instance
  */
-export function getZetaScanAPIService(networkType) {
-  return networkType === "mainnet" ? zetaScanMainnet : zetaScanTestnet;
+export function getZetaChainExplorerAPIService(networkType) {
+  return networkType === "mainnet"
+    ? zetaChainMainnetExplorer
+    : zetaChainTestnetExplorer;
 }
 
 /**
- * React Query key factory for ZetaScan API calls
+ * React Query key factory for ZetaChain Explorer API calls
  */
-export const zetaScanQueryKeys = {
-  all: ["zetascan"],
-  crossChainTransactions: (networkType, options = {}) => [
-    "zetascan",
+export const zetaChainExplorerQueryKeys = {
+  all: ["zetachain-explorer"],
+  transactions: (networkType, options = {}) => [
+    "zetachain-explorer",
     networkType,
-    "cross-chain-transactions",
+    "transactions",
     options,
   ],
-  addressHistory: (networkType, address, options = {}) => [
-    "zetascan",
+  addressTransactions: (networkType, address, options = {}) => [
+    "zetachain-explorer",
     networkType,
-    "address-history",
+    "address-transactions",
     address,
     options,
   ],
   transactionDetails: (networkType, txHash) => [
-    "zetascan",
+    "zetachain-explorer",
     networkType,
     "transaction",
     txHash,
   ],
-  networkStats: (networkType) => ["zetascan", networkType, "stats"],
+  networkStats: (networkType) => ["zetachain-explorer", networkType, "stats"],
 };
+
+// Legacy compatibility exports (without deprecated warnings)
+export const ZETASCAN_ERROR_TYPES = ZETACHAIN_EXPLORER_ERROR_TYPES;
+export const ZetaScanAPIError = ZetaChainExplorerAPIError;
