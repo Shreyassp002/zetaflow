@@ -1,10 +1,9 @@
 /**
  * @fileoverview Search service for ZetaFlow application
- * Integrates ZetaChain RPC and Explorer API services for comprehensive search functionality
+ * Integrates unified ZetaChain API service for comprehensive search functionality
  */
 
-import { getZetaRPCService } from "../blockchain/zetachain-rpc.js";
-import { getZetaChainExplorerAPIService } from "../blockchain/zetascan-api.js";
+import { zetaChainService } from "../blockchain/zetachain-service.js";
 import { getSearchHistoryManager } from "./SearchHistoryManager.js";
 
 /**
@@ -75,8 +74,8 @@ export class SearchService {
    */
   constructor(networkType = "testnet") {
     this.networkType = networkType;
-    this.rpcService = getZetaRPCService(networkType);
-    this.apiService = getZetaChainExplorerAPIService(networkType);
+    this.zetaService = zetaChainService;
+    this.zetaService.setNetwork(networkType);
     this.historyManager = getSearchHistoryManager();
     this.searchCache = new Map();
   }
@@ -91,8 +90,7 @@ export class SearchService {
     }
 
     this.networkType = networkType;
-    this.rpcService.switchNetwork(networkType);
-    this.apiService.switchNetwork(networkType);
+    this.zetaService.setNetwork(networkType);
     this.clearCache(); // Clear cache when switching networks
   }
 
@@ -253,80 +251,54 @@ export class SearchService {
     }
 
     try {
-      const errors = [];
+      // Use unified ZetaChain service for transaction search
+      const transactionData = await this.zetaService.getTransaction(
+        normalizedHash
+      );
 
-      // Run both services in parallel for faster results
-      const [crossChainResult, rpcResult] = await Promise.allSettled([
-        this.apiService.getTransactionDetails(normalizedHash),
-        this.rpcService.getTransaction(normalizedHash),
-      ]);
+      // Determine result type based on transaction data
+      const resultType =
+        transactionData.type === "cross-chain"
+          ? SEARCH_RESULT_TYPES.CROSS_CHAIN_TRANSACTION
+          : SEARCH_RESULT_TYPES.TRANSACTION;
 
-      // Check cross-chain transaction first (more comprehensive)
-      if (crossChainResult.status === "fulfilled" && crossChainResult.value) {
-        const result = {
-          type: SEARCH_RESULT_TYPES.CROSS_CHAIN_TRANSACTION,
-          data: [crossChainResult.value],
-          metadata: {
-            query: txHash,
-            searchType: "txid",
-            totalResults: 1,
-            loadTime: Date.now() - startTime,
-            network: this.networkType,
-          },
-        };
+      const result = {
+        type: resultType,
+        data: [transactionData],
+        metadata: {
+          query: txHash,
+          searchType: "txid",
+          totalResults: 1,
+          loadTime: Date.now() - startTime,
+          network: this.networkType,
+        },
+      };
 
-        return result;
-      }
-
-      // Check RPC transaction
-      if (rpcResult.status === "fulfilled" && rpcResult.value) {
-        const result = {
-          type: SEARCH_RESULT_TYPES.TRANSACTION,
-          data: [rpcResult.value],
-          metadata: {
-            query: txHash,
-            searchType: "txid",
-            totalResults: 1,
-            loadTime: Date.now() - startTime,
-            network: this.networkType,
-          },
-        };
-
-        return result;
-      }
-
-      // Collect errors from failed services
-      if (crossChainResult.status === "rejected") {
-        const error = crossChainResult.reason;
-        if (error.type !== "NOT_FOUND") {
-          errors.push(`Explorer API: ${error.message}`);
-        }
-      }
-
-      if (rpcResult.status === "rejected") {
-        const error = rpcResult.reason;
-        if (error.type !== "TRANSACTION_NOT_FOUND") {
-          errors.push(`RPC Service: ${error.message}`);
-        }
-      }
-
-      // If both services fail, provide helpful error information
-      let errorMessage = `Transaction ${normalizedHash} not found on ${this.networkType} network. `;
-
-      if (errors.length > 0) {
-        errorMessage += `Service issues detected: ${errors.join("; ")}. `;
-      }
-
-      errorMessage += `This could mean: `;
-      errorMessage += `(1) The transaction doesn't exist on this network, `;
-      errorMessage += `(2) Try switching to ${
-        this.networkType === "testnet" ? "mainnet" : "testnet"
-      }, `;
-      errorMessage += `(3) The transaction is very recent and not yet indexed, or `;
-      errorMessage += `(4) The blockchain services are temporarily unavailable.`;
-
-      throw new SearchError(SEARCH_ERROR_TYPES.NOT_FOUND, errorMessage);
+      return result;
     } catch (error) {
+      // Handle ZetaChainService errors
+      if (error.name === "ZetaChainServiceError") {
+        let errorMessage = `Transaction ${normalizedHash} not found on ${this.networkType} network. `;
+
+        if (error.type === "TRANSACTION_NOT_FOUND") {
+          errorMessage += `This could mean: `;
+          errorMessage += `(1) The transaction doesn't exist on this network, `;
+          errorMessage += `(2) Try switching to ${
+            this.networkType === "testnet" ? "mainnet" : "testnet"
+          }, `;
+          errorMessage += `(3) The transaction is very recent and not yet indexed, or `;
+          errorMessage += `(4) The blockchain services are temporarily unavailable.`;
+
+          throw new SearchError(SEARCH_ERROR_TYPES.NOT_FOUND, errorMessage);
+        }
+
+        throw new SearchError(
+          this.mapZetaServiceErrorType(error.type),
+          error.message,
+          error
+        );
+      }
+
       if (error instanceof SearchError) {
         throw error;
       }
@@ -346,7 +318,7 @@ export class SearchService {
   async searchByAddress(address, options = {}) {
     const startTime = Date.now();
     const normalizedAddress = this.normalizeQuery(address);
-    const { limit = 50, fromBlock, toBlock } = options;
+    const { limit = 50 } = options;
 
     // Validate address format
     const validation = this.validateSearchInput(normalizedAddress);
@@ -358,60 +330,20 @@ export class SearchService {
     }
 
     try {
-      const errors = [];
-
-      // Try to get cross-chain transactions first
-      let crossChainTxs = [];
-      try {
-        crossChainTxs = await this.apiService.getAddressTransactions(
-          normalizedAddress,
-          { limit, fromBlock, toBlock }
-        );
-      } catch (error) {
-        errors.push(`Explorer API: ${error.message}`);
-        console.warn("Explorer API failed for address search:", error.message);
-      }
-
-      // Get regular transactions from RPC
-      let regularTxs = [];
-      try {
-        regularTxs = await this.rpcService.getAddressTransactions(
-          normalizedAddress,
-          { limit, fromBlock, toBlock }
-        );
-      } catch (error) {
-        errors.push(`RPC Service: ${error.message}`);
-        console.warn("RPC service failed for address search:", error.message);
-      }
-
-      // Combine and deduplicate results
-      const allTransactions = [...crossChainTxs, ...regularTxs];
-      const uniqueTransactions = this.deduplicateTransactions(allTransactions);
-
-      // Sort by timestamp (newest first) and limit results
-      const sortedTransactions = uniqueTransactions.sort(
-        (a, b) => (b.timestamp || 0) - (a.timestamp || 0)
-      );
-      const limitedTransactions = sortedTransactions.slice(0, limit);
-
-      // If no transactions found and we have service errors, provide helpful message
-      if (limitedTransactions.length === 0 && errors.length > 0) {
-        let errorMessage = `No transactions found for address ${normalizedAddress} on ${this.networkType} network. `;
-        errorMessage += `This could mean: (1) The address has no transactions, (2) It's on a different network, or (3) The services are temporarily unavailable. `;
-        errorMessage += `Service details: ${errors.join("; ")}`;
-        throw new SearchError(SEARCH_ERROR_TYPES.NOT_FOUND, errorMessage);
-      }
+      // Note: Address search is not implemented in the unified ZetaChain API
+      // This would require additional endpoints or block scanning
+      // For now, return empty results with helpful message
 
       const result = {
         type: SEARCH_RESULT_TYPES.ADDRESS_TRANSACTIONS,
-        data: limitedTransactions,
+        data: [],
         metadata: {
           query: address,
           searchType: "address",
-          totalResults: limitedTransactions.length,
+          totalResults: 0,
           loadTime: Date.now() - startTime,
           network: this.networkType,
-          serviceErrors: errors.length > 0 ? errors : undefined,
+          note: "Address transaction search is not yet implemented. The unified ZetaChain API currently supports transaction hash search only.",
         },
       };
 
@@ -506,6 +438,28 @@ export class SearchService {
   }
 
   /**
+   * Map ZetaChainService error types to SearchError types
+   * @param {string} zetaServiceErrorType - ZetaChainService error type
+   * @returns {string} SearchError type
+   */
+  mapZetaServiceErrorType(zetaServiceErrorType) {
+    switch (zetaServiceErrorType) {
+      case "TRANSACTION_NOT_FOUND":
+        return SEARCH_ERROR_TYPES.NOT_FOUND;
+      case "INVALID_INPUT":
+        return SEARCH_ERROR_TYPES.INVALID_INPUT;
+      case "NETWORK_ERROR":
+        return SEARCH_ERROR_TYPES.NETWORK_ERROR;
+      case "TIMEOUT":
+        return SEARCH_ERROR_TYPES.TIMEOUT;
+      case "API_RATE_LIMIT":
+        return SEARCH_ERROR_TYPES.SERVICE_ERROR;
+      default:
+        return SEARCH_ERROR_TYPES.UNKNOWN_ERROR;
+    }
+  }
+
+  /**
    * Map service errors to SearchError
    * @param {Error} error - Original error
    * @param {string} [defaultMessage] - Default error message
@@ -516,78 +470,13 @@ export class SearchService {
       return error;
     }
 
-    // Map RPC errors
-    if (error.name === "ZetaRPCError") {
-      switch (error.type) {
-        case "TRANSACTION_NOT_FOUND":
-        case "NOT_FOUND":
-          return new SearchError(
-            SEARCH_ERROR_TYPES.NOT_FOUND,
-            "Transaction or address not found",
-            error
-          );
-        case "INVALID_ADDRESS":
-        case "INVALID_TX_HASH":
-          return new SearchError(
-            SEARCH_ERROR_TYPES.INVALID_INPUT,
-            error.message,
-            error
-          );
-        case "RPC_TIMEOUT":
-          return new SearchError(
-            SEARCH_ERROR_TYPES.TIMEOUT,
-            "Search request timed out",
-            error
-          );
-        case "NETWORK_ERROR":
-          return new SearchError(
-            SEARCH_ERROR_TYPES.NETWORK_ERROR,
-            "Network connection failed",
-            error
-          );
-        default:
-          return new SearchError(
-            SEARCH_ERROR_TYPES.SERVICE_ERROR,
-            error.message || defaultMessage,
-            error
-          );
-      }
-    }
-
-    // Map API errors
-    if (error.name === "ZetaScanAPIError") {
-      switch (error.type) {
-        case "NOT_FOUND":
-          return new SearchError(
-            SEARCH_ERROR_TYPES.NOT_FOUND,
-            "Transaction or address not found",
-            error
-          );
-        case "INVALID_PARAMS":
-          return new SearchError(
-            SEARCH_ERROR_TYPES.INVALID_INPUT,
-            error.message,
-            error
-          );
-        case "TIMEOUT":
-          return new SearchError(
-            SEARCH_ERROR_TYPES.TIMEOUT,
-            "Search request timed out",
-            error
-          );
-        case "NETWORK_ERROR":
-          return new SearchError(
-            SEARCH_ERROR_TYPES.NETWORK_ERROR,
-            "Network connection failed",
-            error
-          );
-        default:
-          return new SearchError(
-            SEARCH_ERROR_TYPES.SERVICE_ERROR,
-            error.message || defaultMessage,
-            error
-          );
-      }
+    // Map ZetaChainService errors
+    if (error.name === "ZetaChainServiceError") {
+      return new SearchError(
+        this.mapZetaServiceErrorType(error.type),
+        error.message,
+        error
+      );
     }
 
     return new SearchError(
@@ -642,17 +531,26 @@ export class SearchService {
    * @returns {Promise<Object>} Health status
    */
   async getHealthStatus() {
-    const [rpcHealthy, apiHealthy] = await Promise.all([
-      this.rpcService.isHealthy().catch(() => false),
-      this.apiService.isHealthy().catch(() => false),
-    ]);
+    try {
+      // Test the unified service with a simple network info call
+      const networkInfo = this.zetaService.getNetworkInfo();
+      const isHealthy =
+        !!networkInfo && networkInfo.network === this.networkType;
 
-    return {
-      network: this.networkType,
-      rpcService: rpcHealthy,
-      apiService: apiHealthy,
-      overall: rpcHealthy || apiHealthy, // At least one service should be healthy
-    };
+      return {
+        network: this.networkType,
+        zetaService: isHealthy,
+        overall: isHealthy,
+        networkInfo: networkInfo,
+      };
+    } catch (error) {
+      return {
+        network: this.networkType,
+        zetaService: false,
+        overall: false,
+        error: error.message,
+      };
+    }
   }
 }
 

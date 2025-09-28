@@ -9,11 +9,14 @@ import {
   StatusBadge,
 } from "@/components/ui";
 import { SearchContainer } from "@/components/search";
+import { TransactionSidebar } from "@/components";
 
 export default function Home() {
   const [networkMode, setNetworkMode] = useState("testnet");
   const [selectedTransaction, setSelectedTransaction] = useState(null);
   const [showVisualization, setShowVisualization] = useState(false);
+  const [sidebarOpen, setSidebarOpen] = useState(false);
+  const [sidebarTransaction, setSidebarTransaction] = useState(null);
 
   const handleNetworkToggle = (network) => {
     setNetworkMode(network);
@@ -28,7 +31,15 @@ export default function Home() {
 
   const handleResultSelect = (transaction) => {
     console.log("Transaction selected for visualization:", transaction);
-    // This would trigger the graph visualization
+    // Show transaction details in sidebar
+    setSidebarTransaction(transaction);
+    setSidebarOpen(true);
+    // This would also trigger the graph visualization
+  };
+
+  const handleCloseSidebar = () => {
+    setSidebarOpen(false);
+    setSidebarTransaction(null);
   };
 
   return (
@@ -121,18 +132,14 @@ export default function Home() {
                       </div>
                     </div>
 
-                    <div className="text-center text-sm text-gray-500 mt-8 space-y-2">
+                    <div className="text-center text-sm text-gray-500 mt-8">
                       <p>
                         Enter a transaction hash or wallet address to start
                         visualizing cross-chain flows
                       </p>
-                      <p>
-                        <a
-                          href="/search-demo"
-                          className="text-blue-600 hover:text-blue-700 underline"
-                        >
-                          View Search Demo →
-                        </a>
+                      <p className="mt-2 text-xs">
+                        Search results will show a &quot;View in Graph&quot;
+                        button that opens transaction details
                       </p>
                     </div>
                   </div>
@@ -192,6 +199,14 @@ export default function Home() {
                               text="Rendering Graph"
                             />
                           </div>
+
+                          {/* Graph nodes will be clickable to show transaction details */}
+                          <div className="mt-8">
+                            <p className="text-xs text-gray-400">
+                              Graph nodes and edges will be clickable to show
+                              transaction details
+                            </p>
+                          </div>
                         </div>
                       </div>
                     </div>
@@ -220,6 +235,13 @@ export default function Home() {
           </div>
         </Container>
       </footer>
+
+      {/* Transaction Sidebar */}
+      <TransactionSidebar
+        transaction={sidebarTransaction}
+        isOpen={sidebarOpen}
+        onClose={handleCloseSidebar}
+      />
     </AppLayout>
   );
 }

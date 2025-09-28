@@ -9,3 +9,6 @@ export * from "./search";
 
 // Provider components
 export * from "./providers";
+
+// Sidebar components
+export { default as TransactionSidebar } from "./sidebar/TransactionSidebar";
