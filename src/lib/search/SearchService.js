@@ -251,6 +251,9 @@ export class SearchService {
     }
 
     try {
+      // Ensure ZetaChain service is using the correct network
+      this.zetaService.setNetwork(this.networkType);
+      
       // Use unified ZetaChain service for transaction search
       console.log(`Searching for transaction: ${normalizedHash} on ${this.networkType}`);
       const transactionData = await this.zetaService.getTransaction(
@@ -407,6 +410,10 @@ export class SearchService {
         return cached;
       }
     }
+
+    // Ensure ZetaChain service is using the correct network before any search
+    this.zetaService.setNetwork(this.networkType);
+    console.log(`Search service using network: ${this.networkType}, ZetaService network: ${this.zetaService.getCurrentNetwork()}`);
 
     let result;
 

@@ -20,6 +20,11 @@ export default function Home() {
 
   const handleNetworkToggle = (network) => {
     setNetworkMode(network);
+    // Clear sidebar and visualization when switching networks
+    setSidebarOpen(false);
+    setSidebarTransaction(null);
+    setShowVisualization(false);
+    setSelectedTransaction(null);
     console.log("Network switched to:", network);
   };
 
