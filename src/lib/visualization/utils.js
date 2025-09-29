@@ -1,136 +1,58 @@
-import { ZETA_CONFIG } from "../config";
-
+// Export GraphService
+export { default as GraphService } from './GraphService';
 /**
- * Generate node data for cytoscape visualization
- * @param {Object} nodeInfo - Node information
- * @returns {Object} Cytoscape node data
+ * Additional color utilities for graph visualization
  */
-export const createNode = (nodeInfo) => {
-  const {
-    id,
-    label,
-    type = "default",
-    size = ZETA_CONFIG.visualization.nodeSize.default,
-  } = nodeInfo;
-
-  return {
-    data: {
-      id,
-      label,
-      type,
-      size,
-    },
-    classes: `node-${type}`,
-    style: {
-      width: size,
-      height: size,
-      "background-color": getNodeColor(type),
-      label: label,
-      "text-valign": "center",
-      "text-halign": "center",
-      color: ZETA_CONFIG.visualization.colors.text,
-      "font-size": "12px",
-    },
-  };
+export const GRAPH_COLORS = {
+  SUCCESS: '#10b981',
+  PENDING: '#3b82f6', 
+  FAILED: '#ef4444',
+  NEUTRAL: '#6b7280',
+  BACKGROUND: '#ffffff',
+  BORDER: '#e5e7eb'
 };
 
 /**
- * Generate edge data for cytoscape visualization
- * @param {Object} edgeInfo - Edge information
- * @returns {Object} Cytoscape edge data
+ * Format address for display
+ * @param {string} address - Full address
+ * @param {number} startChars - Characters to show at start
+ * @param {number} endChars - Characters to show at end
+ * @returns {string} Formatted address
  */
-export const createEdge = (edgeInfo) => {
-  const { id, source, target, type = "default", weight = 1 } = edgeInfo;
-
-  return {
-    data: {
-      id,
-      source,
-      target,
-      type,
-      weight,
-    },
-    classes: `edge-${type}`,
-    style: {
-      width: Math.max(1, weight * 2),
-      "line-color": getEdgeColor(type),
-      "target-arrow-color": getEdgeColor(type),
-      "target-arrow-shape": "triangle",
-      "curve-style": "bezier",
-    },
-  };
-};
+export function formatAddress(address, startChars = 6, endChars = 4) {
+  if (!address || address.length <= startChars + endChars) {
+    return address;
+  }
+  return `${address.slice(0, startChars)}...${address.slice(-endChars)}`;
+}
 
 /**
- * Get color for node type
- * @param {string} type - Node type
+ * Format transaction hash for display
+ * @param {string} hash - Transaction hash
+ * @param {number} length - Number of characters to show
+ * @returns {string} Formatted hash
+ */
+export function formatTxHash(hash, length = 8) {
+  if (!hash || hash.length <= length) {
+    return hash;
+  }
+  return `${hash.slice(0, length)}...`;
+}
+
+/**
+ * Get status color based on transaction status
+ * @param {string} status - Transaction status
  * @returns {string} Color hex code
  */
-export const getNodeColor = (type) => {
-  const colors = {
-    transaction: ZETA_CONFIG.visualization.colors.primary,
-    block: ZETA_CONFIG.visualization.colors.secondary,
-    contract: ZETA_CONFIG.visualization.colors.accent,
-    address: "#9CA3AF",
-    default: "#6B7280",
-  };
-
-  return colors[type] || colors.default;
-};
-
-/**
- * Get color for edge type
- * @param {string} type - Edge type
- * @returns {string} Color hex code
- */
-export const getEdgeColor = (type) => {
-  const colors = {
-    transfer: ZETA_CONFIG.visualization.colors.primary,
-    call: ZETA_CONFIG.visualization.colors.secondary,
-    create: ZETA_CONFIG.visualization.colors.accent,
-    default: "#4B5563",
-  };
-
-  return colors[type] || colors.default;
-};
-
-/**
- * Calculate layout positions for nodes
- * @param {Array} nodes - Array of nodes
- * @param {string} layoutType - Layout algorithm type
- * @returns {Object} Layout configuration
- */
-export const getLayoutConfig = (nodes, layoutType = "cose") => {
-  const layouts = {
-    cose: {
-      name: "cose",
-      animate: true,
-      animationDuration: ZETA_CONFIG.visualization.animationDuration,
-      nodeRepulsion: 400000,
-      nodeOverlap: 10,
-      idealEdgeLength: 100,
-      edgeElasticity: 100,
-      nestingFactor: 5,
-      gravity: 80,
-      numIter: 1000,
-      initialTemp: 200,
-      coolingFactor: 0.95,
-      minTemp: 1.0,
-    },
-    circle: {
-      name: "circle",
-      animate: true,
-      animationDuration: ZETA_CONFIG.visualization.animationDuration,
-      radius: Math.min(300, nodes.length * 20),
-    },
-    grid: {
-      name: "grid",
-      animate: true,
-      animationDuration: ZETA_CONFIG.visualization.animationDuration,
-      rows: Math.ceil(Math.sqrt(nodes.length)),
-      cols: Math.ceil(Math.sqrt(nodes.length)),
-    },
-  };
-
-  return layouts[layoutType] || layouts.cose;
-};
+export function getStatusColor(status) {
+  switch (status) {
+    case 'success':
+      return GRAPH_COLORS.SUCCESS;
+    case 'pending':
+      return GRAPH_COLORS.PENDING;
+    case 'failed':
+      return GRAPH_COLORS.FAILED;
+    default:
+      return GRAPH_COLORS.NEUTRAL;
+  }
+}

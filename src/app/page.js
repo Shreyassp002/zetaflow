@@ -1,6 +1,6 @@
 "use client";
 
-import { useState } from "react";
+import { useState, useCallback } from "react";
 import { AppLayout, Header, Container } from "@/components/layout";
 import {
   Button,
@@ -10,6 +10,7 @@ import {
 } from "@/components/ui";
 import { SearchInput } from "@/components/search";
 import { TransactionSidebar } from "@/components";
+import { GraphVisualization, GraphControls } from "@/components/visualization";
 import { getSearchService } from "@/lib/search/SearchService";
 
 export default function Home() {
@@ -19,6 +20,9 @@ export default function Home() {
   const [sidebarOpen, setSidebarOpen] = useState(false);
   const [sidebarTransaction, setSidebarTransaction] = useState(null);
   const [isSearching, setIsSearching] = useState(false);
+  const [graphTransactions, setGraphTransactions] = useState([]);
+  const [graphLayout, setGraphLayout] = useState('fcose');
+  const [graphService, setGraphService] = useState(null);
 
   const handleNetworkToggle = (network) => {
     setNetworkMode(network);
@@ -27,6 +31,7 @@ export default function Home() {
     setSidebarTransaction(null);
     setShowVisualization(false);
     setSelectedTransaction(null);
+    setGraphTransactions([]);
     console.log("Network switched to:", network);
   };
 
@@ -49,6 +54,41 @@ export default function Home() {
     setSidebarTransaction(null);
   };
 
+  const handleNodeClick = useCallback((nodeData) => {
+    console.log("Node clicked:", nodeData);
+    
+    // If it's a transaction node, show transaction details
+    if (nodeData.type === 'transaction' && nodeData.txData) {
+      setSidebarTransaction(nodeData.txData);
+      setSidebarOpen(true);
+    }
+    // If it's an address node, could show address details
+    else if (nodeData.type === 'address') {
+      // Could implement address details view
+      console.log("Address node clicked:", nodeData.address);
+    }
+  }, []);
+
+  const handleEdgeClick = useCallback((edgeData) => {
+    console.log("Edge clicked:", edgeData);
+    
+    // Show transaction details for the edge
+    if (edgeData.txData) {
+      setSidebarTransaction(edgeData.txData);
+      setSidebarOpen(true);
+    }
+  }, []);
+
+  const handleGraphExport = async (format) => {
+    console.log("Exporting graph as:", format);
+    // Graph export will be handled by the GraphVisualization component
+    // This is just a placeholder for additional export logic if needed
+  };
+
+  const handleGraphServiceReady = useCallback((service) => {
+    setGraphService(service);
+  }, []);
+
   const handleSearch = async (query, type) => {
     console.log("Search initiated:", { query, type, networkMode });
     
@@ -68,6 +108,9 @@ export default function Home() {
         // Show visualization
         setShowVisualization(true);
         setSelectedTransaction(searchResult);
+        
+        // Set graph transactions for visualization
+        setGraphTransactions(searchResult.data);
         
         // Show transaction details in sidebar
         setSidebarTransaction(transactionData);
@@ -92,9 +135,10 @@ export default function Home() {
       <Header networkMode={networkMode} onNetworkToggle={handleNetworkToggle} />
 
       <main className="flex-1 py-8">
-        <Container>
-          <div className="grid grid-cols-1 lg:grid-cols-4 gap-6 min-h-[calc(100vh-200px)] h-full">
-            {/* Sidebar */}
+        <div className={`transition-all duration-300 ${sidebarOpen ? 'pr-80' : ''}`}>
+          <Container>
+            <div className="grid grid-cols-1 lg:grid-cols-4 gap-6 min-h-[calc(100vh-200px)] h-full">
+            {/* Left Sidebar */}
             <div className="lg:col-span-1 space-y-4">
               <div className="bg-white border border-gray-200 rounded-lg p-4">
                 <h2 className="text-lg font-semibold mb-4 text-black">
@@ -121,12 +165,32 @@ export default function Home() {
                   Visualization Controls
                 </h2>
                 <div className="space-y-3">
-                  <ActionButton color="blue" className="w-full">
-                    Start Visualization
+                  <ActionButton 
+                    color="blue" 
+                    className="w-full"
+                    onClick={() => setShowVisualization(!showVisualization)}
+                    disabled={!graphTransactions.length}
+                  >
+                    {showVisualization ? 'Hide Graph' : 'Show Graph'}
                   </ActionButton>
-                  <Button variant="outline" className="w-full">
+                  <Button 
+                    variant="outline" 
+                    className="w-full"
+                    disabled={!showVisualization}
+                    onClick={() => {
+                      if (graphService) {
+                        graphService.fit();
+                      }
+                    }}
+                  >
                     Reset View
                   </Button>
+                  <div className="text-xs text-gray-500 mt-2">
+                    {graphTransactions.length > 0 
+                      ? `${graphTransactions.length} transaction(s) loaded`
+                      : 'Search for transactions to visualize'
+                    }
+                  </div>
                 </div>
               </div>
 
@@ -215,36 +279,27 @@ export default function Home() {
                       </div>
                     </div>
 
-                    {/* Cytoscape Container */}
-                    <div
-                      id="cy-container"
-                      className="w-full h-full pt-16"
-                      style={{ minHeight: "600px" }}
-                    >
-                      {/* Placeholder for now - will be replaced with actual Cytoscape integration */}
-                      <div className="flex items-center justify-center h-full">
-                        <div className="text-center space-y-4">
-                          <div className="w-16 h-16 border-4 border-black border-t-transparent rounded-full animate-spin mx-auto"></div>
-                          <p className="text-gray-600">
-                            Loading visualization...
-                          </p>
-                          <div className="flex justify-center gap-2">
-                            <StatusBadge status="success" text="Data Loaded" />
-                            <StatusBadge
-                              status="pending"
-                              text="Rendering Graph"
-                            />
-                          </div>
+                    {/* Graph Controls */}
+                    <div className="absolute top-16 left-4 right-4 z-10">
+                      <GraphControls
+                        currentLayout={graphLayout}
+                        onLayoutChange={setGraphLayout}
+                        onExport={handleGraphExport}
+                        graphService={graphService}
+                        disabled={!graphTransactions.length}
+                      />
+                    </div>
 
-                          {/* Graph nodes will be clickable to show transaction details */}
-                          <div className="mt-8">
-                            <p className="text-xs text-gray-400">
-                              Graph nodes and edges will be clickable to show
-                              transaction details
-                            </p>
-                          </div>
-                        </div>
-                      </div>
+                    {/* Graph Visualization */}
+                    <div className="w-full h-full pt-16">
+                      <GraphVisualization
+                        transactions={graphTransactions}
+                        onNodeClick={handleNodeClick}
+                        onEdgeClick={handleEdgeClick}
+                        onGraphServiceReady={handleGraphServiceReady}
+                        layout={graphLayout}
+                        className="h-full"
+                      />
                     </div>
                   </div>
                 )}
@@ -252,10 +307,11 @@ export default function Home() {
             </div>
           </div>
         </Container>
+        </div>
       </main>
 
       {/* Footer */}
-      <footer className="border-t border-gray-200 bg-white mt-8">
+      <footer className={`border-t border-gray-200 bg-white mt-8 transition-all duration-300 ${sidebarOpen ? 'pr-80' : ''}`}>
         <Container>
           <div className="py-4">
             <div className="flex items-center justify-between text-sm text-gray-600">
@@ -271,6 +327,14 @@ export default function Home() {
           </div>
         </Container>
       </footer>
+
+      {/* Sidebar Backdrop (mobile only) */}
+      {sidebarOpen && (
+        <div 
+          className="fixed inset-0 bg-black bg-opacity-50 z-40 lg:hidden"
+          onClick={handleCloseSidebar}
+        />
+      )}
 
       {/* Transaction Sidebar */}
       <TransactionSidebar

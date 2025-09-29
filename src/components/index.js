@@ -12,3 +12,6 @@ export * from "./providers";
 
 // Sidebar components
 export { default as TransactionSidebar } from "./sidebar/TransactionSidebar";
+
+// Visualization components
+export * from "./visualization";
