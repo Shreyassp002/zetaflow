@@ -1,14 +1,14 @@
 "use client";
 
 import { useState, useCallback } from "react";
-import { AppLayout, Header, Container } from "@/components/layout";
+import { AppLayout, Header } from "@/components/layout";
 import {
   Button,
   ActionButton,
   StatusIndicator,
-  StatusBadge,
 } from "@/components/ui";
 import { SearchInput } from "@/components/search";
+import NetworkStats from "@/components/sidebar/NetworkStats";
 
 import { GraphVisualization, GraphControls } from "@/components/visualization";
 import { getSearchService } from "@/lib/search/SearchService";
@@ -159,27 +159,9 @@ export default function Home() {
         <div className="flex flex-col lg:flex-row gap-8 min-h-[calc(100vh-200px)] h-full px-12">
           {/* Left Sidebar */}
           <div className="w-full lg:w-64 xl:w-80 flex-shrink-0 space-y-4">
-            <div className="bg-white border border-gray-200 rounded-lg p-4">
-              <h2 className="text-lg font-semibold mb-4 text-black">
-                Network Stats
-              </h2>
-              <div className="space-y-3">
-                <div className="flex justify-between">
-                  <span className="text-gray-600">Block Height:</span>
-                  <span className="font-mono text-black">Loading...</span>
-                </div>
-                <div className="flex justify-between">
-                  <span className="text-gray-600">Gas Price:</span>
-                  <span className="font-mono text-black">Loading...</span>
-                </div>
-                <div className="flex justify-between">
-                  <span className="text-gray-600">TPS:</span>
-                  <span className="font-mono text-black">Loading...</span>
-                </div>
-              </div>
-            </div>
+            <NetworkStats networkMode={networkMode} />
 
-            <div className="bg-white border border-gray-200 rounded-lg p-4">
+            <div className="bg-white border-2 border-gray-300 rounded-lg p-4 shadow-sm">
               <h2 className="text-lg font-semibold mb-4 text-black">
                 Visualization Controls
               </h2>
@@ -212,26 +194,6 @@ export default function Home() {
                 </div>
               </div>
             </div>
-
-            <div className="bg-white border border-gray-200 rounded-lg p-4">
-              <h2 className="text-lg font-semibold mb-4 text-black">
-                Connection Status
-              </h2>
-              <div className="space-y-3">
-                <div className="flex items-center justify-between">
-                  <span className="text-gray-600">ZetaChain RPC:</span>
-                  <StatusIndicator status="success" />
-                </div>
-                <div className="flex items-center justify-between">
-                  <span className="text-gray-600">Explorer API:</span>
-                  <StatusIndicator status="success" />
-                </div>
-                <div className="flex items-center justify-between">
-                  <span className="text-gray-600">Wallet:</span>
-                  <StatusIndicator status="pending" />
-                </div>
-              </div>
-            </div>
           </div>
 
           {/* Main Content Area */}
@@ -248,7 +210,7 @@ export default function Home() {
             </div>
 
             {/* Graph Area */}
-            <div className="flex-1 bg-white border border-gray-200 rounded-lg min-h-[600px] relative overflow-hidden">
+            <div className="flex-1 bg-white border-2 border-gray-300 rounded-lg min-h-[600px] relative overflow-hidden shadow-sm">
               {!showVisualization ? (
                 /* Graph Placeholder */
                 <div className="h-full flex items-center justify-center">
@@ -266,7 +228,7 @@ export default function Home() {
                 /* Visualization Interface */
                 <div className="h-full relative">
                   {/* Visualization Header */}
-                  <div className="absolute top-0 left-0 right-0 z-10 bg-white border-b border-gray-200 p-4">
+                  <div className="absolute top-0 left-0 right-0 z-10 bg-white border-b-2 border-gray-300 p-4">
                     <div className="flex items-center justify-between">
                       <div className="flex items-center gap-4">
                         <Button
@@ -333,7 +295,7 @@ export default function Home() {
 
           {/* Right Sidebar - Transaction Details */}
           <div className="w-full lg:w-64 xl:w-80 flex-shrink-0 space-y-4">
-            <div className="bg-white border border-gray-200 rounded-lg p-4 h-full">
+            <div className="bg-white border-2 border-gray-300 rounded-lg p-4 h-full shadow-sm">
               <h2 className="text-lg font-semibold mb-4 text-black">
                 Transaction Details
               </h2>
@@ -478,7 +440,7 @@ export default function Home() {
       </main>
 
       {/* Footer */}
-      <footer className="border-t border-gray-200 bg-white mt-8">
+      <footer className="border-t-2 border-gray-300 bg-white mt-8">
         <div className="py-4 px-12">
           <div className="flex items-center justify-between text-sm text-gray-600">
             <p>© 2024 ZetaFlow Visualizer. Built for ZetaChain ecosystem.</p>
