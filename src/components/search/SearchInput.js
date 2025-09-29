@@ -399,6 +399,29 @@ export default function SearchInput({
               <div className="w-4 h-4 border-2 border-gray-300 border-t-black rounded-full animate-spin" />
             </div>
           )}
+
+          {/* Search Button */}
+          <div className="mr-2">
+            <ActionButton
+              color={validation.isValid ? "blue" : "default"}
+              size="sm"
+              onClick={handleSearch}
+              disabled={!validation.isValid || isLoading || disabled}
+              className="h-8"
+            >
+              {isLoading ? (
+                <div className="flex items-center gap-1">
+                  <div className="w-3 h-3 border-2 border-current border-t-transparent rounded-full animate-spin" />
+                  <span className="text-xs">Searching...</span>
+                </div>
+              ) : (
+                <div className="flex items-center gap-1">
+                  <Search size={14} />
+                  <span className="text-xs">Search</span>
+                </div>
+              )}
+            </ActionButton>
+          </div>
         </div>
 
         {/* Suggestions Dropdown */}
@@ -453,28 +476,7 @@ export default function SearchInput({
           </div>
         )}
 
-        {/* Search Button */}
-        <div className="mt-3 flex justify-center">
-          <ActionButton
-            color={validation.isValid ? "blue" : "default"}
-            size="md"
-            onClick={handleSearch}
-            disabled={!validation.isValid || isLoading || disabled}
-            className="min-w-[120px]"
-          >
-            {isLoading ? (
-              <div className="flex items-center gap-2">
-                <div className="w-4 h-4 border-2 border-current border-t-transparent rounded-full animate-spin" />
-                Searching...
-              </div>
-            ) : (
-              <div className="flex items-center gap-2">
-                <Search size={16} />
-                Search
-              </div>
-            )}
-          </ActionButton>
-        </div>
+
       </div>
 
       {/* Error Message */}

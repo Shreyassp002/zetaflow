@@ -62,17 +62,17 @@ export default function TransactionSidebar({ transaction, isOpen, onClose }) {
   };
 
   return (
-    <div className="fixed right-0 top-0 h-full w-80 bg-gray-900 border-l border-gray-700 shadow-lg z-50 transform transition-transform duration-300">
+    <div className="fixed right-0 top-0 h-full w-80 bg-white border-l border-gray-200 shadow-lg z-50 transform transition-transform duration-300">
       {/* Header */}
-      <div className="flex items-center justify-between p-4 border-b border-gray-700">
-        <h2 className="text-lg font-semibold text-white">
+      <div className="flex items-center justify-between p-4 border-b border-gray-200">
+        <h2 className="text-lg font-semibold text-black">
           Transaction Details
         </h2>
         <button
           onClick={onClose}
-          className="p-1 hover:bg-gray-800 rounded-md transition-colors"
+          className="p-1 hover:bg-gray-100 rounded-md transition-colors"
         >
-          <X className="w-5 h-5 text-gray-400" />
+          <X className="w-5 h-5 text-gray-600" />
         </button>
       </div>
 
@@ -90,11 +90,11 @@ export default function TransactionSidebar({ transaction, isOpen, onClose }) {
 
             {/* Transaction Hash */}
             <div>
-              <label className="block text-xs font-medium text-gray-400 uppercase tracking-wide mb-1">
+              <label className="block text-xs font-medium text-gray-600 uppercase tracking-wide mb-1">
                 Transaction Hash
               </label>
               <div className="flex items-center space-x-2">
-                <span className="text-sm font-mono text-white break-all">
+                <span className="text-sm font-mono text-black break-all">
                   {transaction.txHash || "N/A"}
                 </span>
                 {transaction.explorerUrl && (
@@ -112,10 +112,10 @@ export default function TransactionSidebar({ transaction, isOpen, onClose }) {
 
             {/* Amount */}
             <div>
-              <label className="block text-xs font-medium text-gray-400 uppercase tracking-wide mb-1">
+              <label className="block text-xs font-medium text-gray-600 uppercase tracking-wide mb-1">
                 Amount
               </label>
-              <span className="text-sm text-white">
+              <span className="text-sm text-black">
                 {formatAmount(transaction.value)}{" "}
                 {transaction.type === "cross-chain" 
                   ? (transaction.crossChainData?.bridgeContract === "Gas" ? "ZETA" : "ZETA")
@@ -126,20 +126,20 @@ export default function TransactionSidebar({ transaction, isOpen, onClose }) {
 
             {/* From Address */}
             <div>
-              <label className="block text-xs font-medium text-gray-400 uppercase tracking-wide mb-1">
+              <label className="block text-xs font-medium text-gray-600 uppercase tracking-wide mb-1">
                 From
               </label>
-              <span className="text-sm font-mono text-white">
+              <span className="text-sm font-mono text-black">
                 {formatAddress(transaction.from)}
               </span>
             </div>
 
             {/* To Address */}
             <div>
-              <label className="block text-xs font-medium text-gray-400 uppercase tracking-wide mb-1">
+              <label className="block text-xs font-medium text-gray-600 uppercase tracking-wide mb-1">
                 To
               </label>
-              <span className="text-sm font-mono text-white">
+              <span className="text-sm font-mono text-black">
                 {formatAddress(transaction.to)}
               </span>
             </div>
@@ -147,10 +147,10 @@ export default function TransactionSidebar({ transaction, isOpen, onClose }) {
             {/* Chain Info */}
             {transaction.chainId && (
               <div>
-                <label className="block text-xs font-medium text-gray-400 uppercase tracking-wide mb-1">
+                <label className="block text-xs font-medium text-gray-600 uppercase tracking-wide mb-1">
                   Chain
                 </label>
-                <span className="text-sm text-white">
+                <span className="text-sm text-black">
                   {transaction.chainName || `Chain ${transaction.chainId}`}
                 </span>
               </div>
@@ -159,10 +159,10 @@ export default function TransactionSidebar({ transaction, isOpen, onClose }) {
             {/* Block Number */}
             {transaction.blockNumber && (
               <div>
-                <label className="block text-xs font-medium text-gray-400 uppercase tracking-wide mb-1">
+                <label className="block text-xs font-medium text-gray-600 uppercase tracking-wide mb-1">
                   Block
                 </label>
-                <span className="text-sm text-white">
+                <span className="text-sm text-black">
                   {transaction.blockNumber}
                 </span>
               </div>
@@ -171,10 +171,10 @@ export default function TransactionSidebar({ transaction, isOpen, onClose }) {
             {/* Gas Used */}
             {transaction.gasUsed && (
               <div>
-                <label className="block text-xs font-medium text-gray-400 uppercase tracking-wide mb-1">
+                <label className="block text-xs font-medium text-gray-600 uppercase tracking-wide mb-1">
                   Gas Used
                 </label>
-                <span className="text-sm text-white">
+                <span className="text-sm text-black">
                   {transaction.gasUsed}
                 </span>
               </div>
@@ -183,10 +183,10 @@ export default function TransactionSidebar({ transaction, isOpen, onClose }) {
             {/* Timestamp */}
             {transaction.timestamp && (
               <div>
-                <label className="block text-xs font-medium text-gray-400 uppercase tracking-wide mb-1">
+                <label className="block text-xs font-medium text-gray-600 uppercase tracking-wide mb-1">
                   Time
                 </label>
-                <span className="text-sm text-white">
+                <span className="text-sm text-black">
                   {typeof transaction.timestamp === 'number' 
                     ? new Date(transaction.timestamp > 1000000000000 ? transaction.timestamp : transaction.timestamp * 1000).toLocaleString()
                     : transaction.timestamp}
@@ -198,20 +198,20 @@ export default function TransactionSidebar({ transaction, isOpen, onClose }) {
             {transaction.crossChainData && (
               <>
                 <div>
-                  <label className="block text-xs font-medium text-gray-400 uppercase tracking-wide mb-1">
+                  <label className="block text-xs font-medium text-gray-600 uppercase tracking-wide mb-1">
                     Source Chain
                   </label>
-                  <span className="text-sm text-white">
+                  <span className="text-sm text-black">
                     {transaction.crossChainData.sourceChain 
                       ? getChainName(transaction.crossChainData.sourceChain)
                       : "Unknown"}
                   </span>
                 </div>
                 <div>
-                  <label className="block text-xs font-medium text-gray-400 uppercase tracking-wide mb-1">
+                  <label className="block text-xs font-medium text-gray-600 uppercase tracking-wide mb-1">
                     Destination Chain
                   </label>
-                  <span className="text-sm text-white">
+                  <span className="text-sm text-black">
                     {transaction.crossChainData.destinationChain 
                       ? getChainName(transaction.crossChainData.destinationChain)
                       : "Unknown"}
@@ -223,10 +223,10 @@ export default function TransactionSidebar({ transaction, isOpen, onClose }) {
             {/* Network Info */}
             {transaction.network && (
               <div>
-                <label className="block text-xs font-medium text-gray-400 uppercase tracking-wide mb-1">
+                <label className="block text-xs font-medium text-gray-600 uppercase tracking-wide mb-1">
                   Network
                 </label>
-                <span className="text-sm text-white capitalize">
+                <span className="text-sm text-black capitalize">
                   {transaction.network}
                 </span>
               </div>
@@ -235,10 +235,10 @@ export default function TransactionSidebar({ transaction, isOpen, onClose }) {
             {/* Transaction Type */}
             {transaction.type && (
               <div>
-                <label className="block text-xs font-medium text-gray-400 uppercase tracking-wide mb-1">
+                <label className="block text-xs font-medium text-gray-600 uppercase tracking-wide mb-1">
                   Type
                 </label>
-                <span className="text-sm text-white capitalize">
+                <span className="text-sm text-black capitalize">
                   {transaction.type === 'cross-chain' ? 'Cross-Chain' : 'EVM'}
                 </span>
               </div>
@@ -249,30 +249,30 @@ export default function TransactionSidebar({ transaction, isOpen, onClose }) {
               <>
                 {/* Nonce */}
                 <div>
-                  <label className="block text-xs font-medium text-gray-400 uppercase tracking-wide mb-1">
+                  <label className="block text-xs font-medium text-gray-600 uppercase tracking-wide mb-1">
                     Nonce
                   </label>
-                  <span className="text-sm text-white">
+                  <span className="text-sm text-black">
                     {transaction.evmData.nonce}
                   </span>
                 </div>
 
                 {/* Transaction Index */}
                 <div>
-                  <label className="block text-xs font-medium text-gray-400 uppercase tracking-wide mb-1">
+                  <label className="block text-xs font-medium text-gray-600 uppercase tracking-wide mb-1">
                     Transaction Index
                   </label>
-                  <span className="text-sm text-white">
+                  <span className="text-sm text-black">
                     {transaction.evmData.transactionIndex}
                   </span>
                 </div>
 
                 {/* Gas Limit */}
                 <div>
-                  <label className="block text-xs font-medium text-gray-400 uppercase tracking-wide mb-1">
+                  <label className="block text-xs font-medium text-gray-600 uppercase tracking-wide mb-1">
                     Gas Limit
                   </label>
-                  <span className="text-sm text-white">
+                  <span className="text-sm text-black">
                     {transaction.evmData.gasLimit?.toLocaleString()}
                   </span>
                 </div>
@@ -280,10 +280,10 @@ export default function TransactionSidebar({ transaction, isOpen, onClose }) {
                 {/* Contract Interaction */}
                 {transaction.evmData.isContractInteraction && (
                   <div>
-                    <label className="block text-xs font-medium text-gray-400 uppercase tracking-wide mb-1">
+                    <label className="block text-xs font-medium text-gray-600 uppercase tracking-wide mb-1">
                       Contract Interaction
                     </label>
-                    <span className="text-sm text-green-400">
+                    <span className="text-sm text-green-600">
                       Yes
                     </span>
                   </div>
@@ -292,10 +292,10 @@ export default function TransactionSidebar({ transaction, isOpen, onClose }) {
                 {/* Input Data */}
                 {transaction.evmData.inputData && transaction.evmData.inputData !== "0x" && (
                   <div>
-                    <label className="block text-xs font-medium text-gray-400 uppercase tracking-wide mb-1">
+                    <label className="block text-xs font-medium text-gray-600 uppercase tracking-wide mb-1">
                       Input Data
                     </label>
-                    <span className="text-xs font-mono text-white break-all">
+                    <span className="text-xs font-mono text-black break-all">
                       {transaction.evmData.inputData.slice(0, 100)}
                       {transaction.evmData.inputData.length > 100 && "..."}
                     </span>
@@ -305,10 +305,10 @@ export default function TransactionSidebar({ transaction, isOpen, onClose }) {
                 {/* Block Hash */}
                 {transaction.evmData.blockHash && (
                   <div>
-                    <label className="block text-xs font-medium text-gray-400 uppercase tracking-wide mb-1">
+                    <label className="block text-xs font-medium text-gray-600 uppercase tracking-wide mb-1">
                       Block Hash
                     </label>
-                    <span className="text-xs font-mono text-white break-all">
+                    <span className="text-xs font-mono text-black break-all">
                       {transaction.evmData.blockHash}
                     </span>
                   </div>
@@ -322,10 +322,10 @@ export default function TransactionSidebar({ transaction, isOpen, onClose }) {
                 {/* Inbound Transaction Hash */}
                 {transaction.crossChainData.inboundTxHash && (
                   <div>
-                    <label className="block text-xs font-medium text-gray-400 uppercase tracking-wide mb-1">
+                    <label className="block text-xs font-medium text-gray-600 uppercase tracking-wide mb-1">
                       Inbound Tx Hash
                     </label>
-                    <span className="text-sm font-mono text-white break-all">
+                    <span className="text-sm font-mono text-black break-all">
                       {transaction.crossChainData.inboundTxHash}
                     </span>
                   </div>
@@ -334,10 +334,10 @@ export default function TransactionSidebar({ transaction, isOpen, onClose }) {
                 {/* Outbound Transaction Hash */}
                 {transaction.crossChainData.crossChainTxHash && (
                   <div>
-                    <label className="block text-xs font-medium text-gray-400 uppercase tracking-wide mb-1">
+                    <label className="block text-xs font-medium text-gray-600 uppercase tracking-wide mb-1">
                       Outbound Tx Hash
                     </label>
-                    <span className="text-sm font-mono text-white break-all">
+                    <span className="text-sm font-mono text-black break-all">
                       {transaction.crossChainData.crossChainTxHash}
                     </span>
                   </div>
@@ -346,10 +346,10 @@ export default function TransactionSidebar({ transaction, isOpen, onClose }) {
                 {/* Bridge Contract/Coin Type */}
                 {transaction.crossChainData.bridgeContract && transaction.crossChainData.bridgeContract !== 'unknown' && (
                   <div>
-                    <label className="block text-xs font-medium text-gray-400 uppercase tracking-wide mb-1">
+                    <label className="block text-xs font-medium text-gray-600 uppercase tracking-wide mb-1">
                       Asset Type
                     </label>
-                    <span className="text-sm text-white">
+                    <span className="text-sm text-black">
                       {transaction.crossChainData.bridgeContract}
                     </span>
                   </div>
@@ -358,10 +358,10 @@ export default function TransactionSidebar({ transaction, isOpen, onClose }) {
                 {/* Status Message */}
                 {transaction.crossChainData.statusMessage && (
                   <div>
-                    <label className="block text-xs font-medium text-gray-400 uppercase tracking-wide mb-1">
+                    <label className="block text-xs font-medium text-gray-600 uppercase tracking-wide mb-1">
                       Status Message
                     </label>
-                    <span className="text-sm text-white">
+                    <span className="text-sm text-black">
                       {transaction.crossChainData.statusMessage}
                     </span>
                   </div>
@@ -370,10 +370,10 @@ export default function TransactionSidebar({ transaction, isOpen, onClose }) {
                 {/* Error Message */}
                 {transaction.crossChainData.errorMessage && (
                   <div>
-                    <label className="block text-xs font-medium text-gray-400 uppercase tracking-wide mb-1">
+                    <label className="block text-xs font-medium text-gray-600 uppercase tracking-wide mb-1">
                       Error Message
                     </label>
-                    <span className="text-sm text-red-400">
+                    <span className="text-sm text-red-600">
                       {transaction.crossChainData.errorMessage}
                     </span>
                   </div>
@@ -382,7 +382,7 @@ export default function TransactionSidebar({ transaction, isOpen, onClose }) {
             )}
           </>
         ) : (
-          <div className="text-center text-gray-400 mt-8">
+          <div className="text-center text-gray-600 mt-8">
             <p>No transaction selected</p>
             <p className="text-xs mt-1">
               Search for a transaction to view details

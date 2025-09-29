@@ -8,8 +8,9 @@ import {
   StatusIndicator,
   StatusBadge,
 } from "@/components/ui";
-import { SearchContainer } from "@/components/search";
+import { SearchInput } from "@/components/search";
 import { TransactionSidebar } from "@/components";
+import { getSearchService } from "@/lib/search/SearchService";
 
 export default function Home() {
   const [networkMode, setNetworkMode] = useState("testnet");
@@ -17,6 +18,7 @@ export default function Home() {
   const [showVisualization, setShowVisualization] = useState(false);
   const [sidebarOpen, setSidebarOpen] = useState(false);
   const [sidebarTransaction, setSidebarTransaction] = useState(null);
+  const [isSearching, setIsSearching] = useState(false);
 
   const handleNetworkToggle = (network) => {
     setNetworkMode(network);
@@ -47,13 +49,51 @@ export default function Home() {
     setSidebarTransaction(null);
   };
 
+  const handleSearch = async (query, type) => {
+    console.log("Search initiated:", { query, type, networkMode });
+    
+    setIsSearching(true);
+    
+    try {
+      // Get the appropriate search service for the current network
+      const searchService = getSearchService(networkMode);
+      
+      // Perform the search
+      const searchResult = await searchService.search(query);
+      console.log("Search result:", searchResult);
+      
+      if (searchResult && searchResult.data && searchResult.data.length > 0) {
+        const transactionData = searchResult.data[0];
+        
+        // Show visualization
+        setShowVisualization(true);
+        setSelectedTransaction(searchResult);
+        
+        // Show transaction details in sidebar
+        setSidebarTransaction(transactionData);
+        setSidebarOpen(true);
+        
+        console.log("Transaction data for sidebar:", transactionData);
+      } else {
+        console.log("No transaction data found");
+        // Handle case where no results are found
+        alert("No transaction found for the given query");
+      }
+    } catch (error) {
+      console.error("Search failed:", error);
+      alert(`Search failed: ${error.message}`);
+    } finally {
+      setIsSearching(false);
+    }
+  };
+
   return (
     <AppLayout>
       <Header networkMode={networkMode} onNetworkToggle={handleNetworkToggle} />
 
       <main className="flex-1 py-8">
         <Container>
-          <div className="grid grid-cols-1 lg:grid-cols-4 gap-6 min-h-[calc(100vh-200px)]">
+          <div className="grid grid-cols-1 lg:grid-cols-4 gap-6 min-h-[calc(100vh-200px)] h-full">
             {/* Sidebar */}
             <div className="lg:col-span-1 space-y-4">
               <div className="bg-white border border-gray-200 rounded-lg p-4">
@@ -111,40 +151,31 @@ export default function Home() {
               </div>
             </div>
 
-            {/* Visualization Area */}
-            <div className="lg:col-span-3">
-              <div className="bg-white border border-gray-200 rounded-lg h-full relative overflow-hidden">
+            {/* Main Content Area */}
+            <div className="lg:col-span-3 flex flex-col space-y-6">
+              {/* Search Input at Top */}
+              <div className="flex justify-center">
+                <div className="w-full max-w-2xl">
+                  <SearchInput
+                    placeholder={`Search ${networkMode} transactions and addresses...`}
+                    onSearch={handleSearch}
+                    isLoading={isSearching}
+                  />
+                </div>
+              </div>
+
+              {/* Graph Area */}
+              <div className="flex-1 bg-white border border-gray-200 rounded-lg min-h-[600px] relative overflow-hidden">
                 {!showVisualization ? (
-                  /* Search Interface */
-                  <div className="p-8 h-full flex flex-col">
-                    <div className="text-center mb-8">
-                      <h1 className="text-3xl font-bold text-black mb-2">
-                        ZetaFlow Visualizer
-                      </h1>
-                      <p className="text-gray-600 text-lg">
-                        Explore ZetaChain cross-chain transactions and
-                        connections
-                      </p>
-                    </div>
-
-                    <div className="flex-1 flex items-center justify-center">
-                      <div className="w-full max-w-2xl">
-                        <SearchContainer
-                          networkType={networkMode}
-                          onResultSelect={handleResultSelect}
-                          onSearchComplete={handleSearchResult}
-                        />
+                  /* Graph Placeholder */
+                  <div className="h-full flex items-center justify-center">
+                    <div className="text-center text-gray-500">
+                      <div className="w-16 h-16 mx-auto mb-4 border-2 border-gray-300 rounded-lg flex items-center justify-center">
+                        <div className="w-8 h-8 border border-gray-300 rounded"></div>
                       </div>
-                    </div>
-
-                    <div className="text-center text-sm text-gray-500 mt-8">
-                      <p>
-                        Enter a transaction hash or wallet address to start
-                        visualizing cross-chain flows
-                      </p>
-                      <p className="mt-2 text-xs">
-                        Search results will show a &quot;View in Graph&quot;
-                        button that opens transaction details
+                      <p className="text-lg font-medium">Graph Visualization</p>
+                      <p className="text-sm mt-1">
+                        Search for transactions to visualize cross-chain flows
                       </p>
                     </div>
                   </div>
