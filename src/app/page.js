@@ -249,32 +249,16 @@ export default function Home() {
                           )}
                         </div>
                       </div>
-                      <div className="flex items-center gap-2">
-                        <Button
-                          variant="outline"
-                          size="sm"
-                          onClick={() => {
-                            if (graphService) {
-                              graphService.fit();
-                            }
-                          }}
-                        >
-                          Reset View
-                        </Button>
-
+                      <div className="flex items-center">
+                        <GraphControls
+                          currentLayout={graphLayout}
+                          onLayoutChange={setGraphLayout}
+                          onExport={handleGraphExport}
+                          graphService={graphService}
+                          disabled={!graphTransactions.length}
+                        />
                       </div>
                     </div>
-                  </div>
-
-                  {/* Graph Controls */}
-                  <div className="absolute top-16 left-4 right-4 z-10">
-                    <GraphControls
-                      currentLayout={graphLayout}
-                      onLayoutChange={setGraphLayout}
-                      onExport={handleGraphExport}
-                      graphService={graphService}
-                      disabled={!graphTransactions.length}
-                    />
                   </div>
 
                   {/* Graph Visualization */}

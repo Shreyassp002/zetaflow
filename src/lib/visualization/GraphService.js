@@ -36,70 +36,91 @@ export const DEFAULT_STYLES = [
   {
     selector: 'node',
     style: {
-      'background-color': '#ffffff',
-      'border-color': '#e5e7eb',
-      'border-width': 2,
+      'background-color': '#6b7280',
+      'border-width': 0,
       'label': 'data(label)',
-      'text-valign': 'center',
+      'text-valign': 'top',
       'text-halign': 'center',
-      'font-size': '12px',
+      'text-margin-y': -8,
+      'font-size': '8px',
       'font-family': 'Geist Sans, sans-serif',
-      'color': '#000000',
-      'width': 60,
-      'height': 60
+      'color': '#374151',
+      'font-weight': '500',
+      'width': 24,
+      'height': 24
     }
   },
   {
     selector: 'node[type="address"]',
     style: {
-      'background-color': '#f3f4f6',
-      'border-color': '#6b7280',
-      'shape': 'ellipse'
+      'background-color': '#4f46e5',
+      'shape': 'ellipse',
+      'width': 28,
+      'height': 28,
+      'text-margin-y': -10
     }
   },
   {
     selector: 'node[type="chain"]',
     style: {
-      'background-color': '#dbeafe',
-      'border-color': '#3b82f6',
+      'background-color': '#0ea5e9',
       'shape': 'rectangle',
-      'width': 80,
-      'height': 40
+      'width': 32,
+      'height': 20,
+      'text-margin-y': -8,
+      'font-size': '7px'
     }
   },
   {
     selector: 'node[type="transaction"]',
     style: {
-      'background-color': '#dcfce7',
-      'border-color': '#10b981',
+      'background-color': '#10b981',
       'shape': 'diamond',
-      'width': 40,
-      'height': 40
+      'width': 20,
+      'height': 20,
+      'text-margin-y': -8,
+      'font-size': '7px'
     }
   },
   {
     selector: 'node:selected',
     style: {
       'border-color': '#000000',
-      'border-width': 3
-    }
-  },
-  {
-    selector: 'node:hover',
-    style: {
-      'background-color': '#f9fafb',
-      'border-width': 3,
-      'z-index': 10
+      'border-width': 2,
+      'border-style': 'solid'
     }
   },
   {
     selector: 'node.hover',
     style: {
-      'background-color': '#f3f4f6',
-      'border-width': 3,
-      'z-index': 10,
-      'transition-property': 'background-color, border-width',
-      'transition-duration': '0.2s'
+      'border-width': 2,
+      'border-color': '#ffffff',
+      'border-style': 'solid',
+      'z-index': 10
+    }
+  },
+  {
+    selector: 'node[type="address"].hover',
+    style: {
+      'background-color': '#3730a3',
+      'border-width': 2,
+      'border-color': '#ffffff'
+    }
+  },
+  {
+    selector: 'node[type="chain"].hover',
+    style: {
+      'background-color': '#0284c7',
+      'border-width': 2,
+      'border-color': '#ffffff'
+    }
+  },
+  {
+    selector: 'node[type="transaction"].hover',
+    style: {
+      'background-color': '#059669',
+      'border-width': 2,
+      'border-color': '#ffffff'
     }
   },
   {
@@ -251,7 +272,7 @@ class GraphService {
       nodes.set(txNodeId, {
         data: {
           id: txNodeId,
-          label: `Tx ${tx.txHash.slice(0, 8)}...`,
+          label: `${tx.txHash.slice(0, 6)}...`,
           type: NODE_TYPES.TRANSACTION,
           txData: tx
         }
@@ -264,7 +285,7 @@ class GraphService {
           nodes.set(fromNodeId, {
             data: {
               id: fromNodeId,
-              label: `${tx.from.slice(0, 6)}...${tx.from.slice(-4)}`,
+              label: `${tx.from.slice(0, 4)}...${tx.from.slice(-3)}`,
               type: NODE_TYPES.ADDRESS,
               address: tx.from
             }
@@ -289,7 +310,7 @@ class GraphService {
           nodes.set(toNodeId, {
             data: {
               id: toNodeId,
-              label: `${tx.to.slice(0, 6)}...${tx.to.slice(-4)}`,
+              label: `${tx.to.slice(0, 4)}...${tx.to.slice(-3)}`,
               type: NODE_TYPES.ADDRESS,
               address: tx.to
             }
@@ -318,7 +339,7 @@ class GraphService {
           nodes.set(sourceChainId, {
             data: {
               id: sourceChainId,
-              label: `Chain ${tx.crossChainData.sourceChain}`,
+              label: `${tx.crossChainData.sourceChain}`,
               type: NODE_TYPES.CHAIN,
               chainId: tx.crossChainData.sourceChain
             }
@@ -329,7 +350,7 @@ class GraphService {
           nodes.set(destChainId, {
             data: {
               id: destChainId,
-              label: `Chain ${tx.crossChainData.destinationChain}`,
+              label: `${tx.crossChainData.destinationChain}`,
               type: NODE_TYPES.CHAIN,
               chainId: tx.crossChainData.destinationChain
             }

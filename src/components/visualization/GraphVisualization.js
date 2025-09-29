@@ -22,13 +22,24 @@ export default function GraphVisualization({
   const [error, setError] = useState(null);
 
   // Tooltip functions
-  const showTooltip = (event, text) => {
+  const showTooltip = (event, content, isHTML = false) => {
     if (!tooltipRef.current) return;
     
-    tooltipRef.current.textContent = text;
+    if (isHTML) {
+      tooltipRef.current.innerHTML = content;
+    } else {
+      tooltipRef.current.textContent = content;
+    }
+    
     tooltipRef.current.style.display = 'block';
-    tooltipRef.current.style.left = `${event.clientX + 10}px`;
-    tooltipRef.current.style.top = `${event.clientY - 30}px`;
+    
+    // Position tooltip closer to the node
+    const rect = containerRef.current.getBoundingClientRect();
+    const x = event.clientX - rect.left;
+    const y = event.clientY - rect.top;
+    
+    tooltipRef.current.style.left = `${x + 15}px`;
+    tooltipRef.current.style.top = `${y - 10}px`;
   };
 
   const hideTooltip = () => {
@@ -57,20 +68,32 @@ export default function GraphVisualization({
         const node = event.target;
         node.addClass('hover');
         
-        // Show tooltip
+        // Show detailed tooltip
         const nodeData = node.data();
-        let tooltipText = '';
+        let tooltipContent = '';
         
         if (nodeData.type === 'address') {
-          tooltipText = `Address: ${nodeData.address}`;
+          tooltipContent = `
+            <div class="font-semibold text-xs mb-1">Address</div>
+            <div class="text-xs font-mono">${nodeData.address}</div>
+          `;
         } else if (nodeData.type === 'transaction') {
-          tooltipText = `Transaction: ${nodeData.label}`;
+          const txData = nodeData.txData;
+          tooltipContent = `
+            <div class="font-semibold text-xs mb-1">Transaction</div>
+            <div class="text-xs font-mono mb-1">${txData?.txHash || 'N/A'}</div>
+            ${txData?.amount ? `<div class="text-xs">Amount: ${txData.amount}</div>` : ''}
+            ${txData?.status ? `<div class="text-xs">Status: ${txData.status}</div>` : ''}
+          `;
         } else if (nodeData.type === 'chain') {
-          tooltipText = `Chain: ${nodeData.label}`;
+          tooltipContent = `
+            <div class="font-semibold text-xs mb-1">Chain</div>
+            <div class="text-xs">ID: ${nodeData.chainId}</div>
+          `;
         }
         
         // Create or update tooltip
-        showTooltip(event.originalEvent, tooltipText);
+        showTooltip(event.originalEvent, tooltipContent, true);
       });
 
       graphServiceRef.current.on('mouseout', 'node', (event) => {
@@ -85,15 +108,21 @@ export default function GraphVisualization({
         
         // Show edge tooltip
         const edgeData = edge.data();
-        let tooltipText = '';
+        let tooltipContent = '';
         
         if (edgeData.txData) {
-          tooltipText = `Transaction: ${edgeData.txData.txHash?.slice(0, 10)}...`;
+          const txData = edgeData.txData;
+          tooltipContent = `
+            <div class="font-semibold text-xs mb-1">Transaction Flow</div>
+            <div class="text-xs font-mono mb-1">${txData.txHash?.slice(0, 16)}...</div>
+            ${txData.amount ? `<div class="text-xs">Amount: ${txData.amount}</div>` : ''}
+            ${edgeData.type === 'cross_chain' ? '<div class="text-xs text-blue-300">Cross-chain</div>' : ''}
+          `;
         } else {
-          tooltipText = 'Transaction Flow';
+          tooltipContent = '<div class="text-xs">Transaction Flow</div>';
         }
         
-        showTooltip(event.originalEvent, tooltipText);
+        showTooltip(event.originalEvent, tooltipContent, true);
       });
 
       graphServiceRef.current.on('mouseout', 'edge', (event) => {
@@ -265,7 +294,7 @@ export default function GraphVisualization({
       {/* Tooltip */}
       <div
         ref={tooltipRef}
-        className="absolute z-20 bg-black text-white text-xs px-2 py-1 rounded shadow-lg pointer-events-none"
+        className="absolute z-20 bg-gray-900 text-white text-xs px-3 py-2 rounded-lg shadow-xl pointer-events-none max-w-xs border border-gray-700"
         style={{ display: 'none' }}
       />
 
