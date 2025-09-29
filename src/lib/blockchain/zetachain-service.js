@@ -253,12 +253,13 @@ export class ZetaChainService {
         } else {
           // Direct hash - try EVM first, then cross-chain
           try {
-            const evmResult = await this.api.getEVMTransaction(
-              txHashOrUrl,
-              isMainnet
-            );
+            const [evmResult, receiptResult] = await Promise.all([
+              this.api.getEVMTransaction(txHashOrUrl, isMainnet),
+              this.api.getEVMTransactionReceipt(txHashOrUrl, isMainnet).catch(() => null)
+            ]);
+            
             if (evmResult.result) {
-              return this.normalizeEVMTransaction(evmResult.result);
+              return this.normalizeEVMTransaction(evmResult.result, receiptResult?.result);
             }
           } catch (error) {
             console.log("EVM transaction not found, trying cross-chain...");
@@ -327,26 +328,43 @@ export class ZetaChainService {
   /**
    * Normalize EVM transaction data to application format
    * @param {Object} evmTx - Raw EVM transaction data
+   * @param {Object} [receipt] - Transaction receipt data
    * @returns {Object} Normalized transaction data
    */
-  normalizeEVMTransaction(evmTx) {
+  normalizeEVMTransaction(evmTx, receipt = null) {
+    const chainId = evmTx.chainId
+      ? parseInt(evmTx.chainId, 16)
+      : this.currentNetwork === "mainnet"
+      ? 7000
+      : 7001;
+
+    // Determine if this is a contract interaction
+    const isContractInteraction = evmTx.input && evmTx.input !== "0x" && evmTx.input.length > 2;
+    
     return {
       txHash: evmTx.hash,
       blockNumber: evmTx.blockNumber ? parseInt(evmTx.blockNumber, 16) : 0,
       timestamp: Date.now(), // Would need block data for actual timestamp
       from: evmTx.from,
-      to: evmTx.to,
+      to: evmTx.to || "Contract Creation",
       value: evmTx.value,
-      gasUsed: evmTx.gas,
+      gasUsed: receipt ? receipt.gasUsed : evmTx.gas,
       gasPrice: evmTx.gasPrice,
-      status: "success", // Would need receipt for actual status
-      chainId: evmTx.chainId
-        ? parseInt(evmTx.chainId, 16)
-        : this.currentNetwork === "mainnet"
-        ? 7000
-        : 7001,
+      status: receipt 
+        ? (receipt.status === "0x1" ? "success" : "failed")
+        : "pending",
+      chainId: chainId,
       type: "evm",
       network: this.currentNetwork,
+      evmData: {
+        nonce: evmTx.nonce ? parseInt(evmTx.nonce, 16) : 0,
+        transactionIndex: evmTx.transactionIndex ? parseInt(evmTx.transactionIndex, 16) : 0,
+        gasLimit: evmTx.gas ? parseInt(evmTx.gas, 16) : 0,
+        effectiveGasPrice: receipt?.effectiveGasPrice || evmTx.gasPrice,
+        isContractInteraction: isContractInteraction,
+        inputData: evmTx.input,
+        blockHash: evmTx.blockHash,
+      },
     };
   }
 
@@ -356,40 +374,76 @@ export class ZetaChainService {
    * @returns {Object} Normalized transaction data
    */
   normalizeCrossChainTransaction(ccTx) {
-    const cctx = ccTx.cctx || ccTx;
-    const inboundParams = cctx.inbound_tx_params || {};
-    const outboundParams = cctx.outbound_tx_params?.[0] || {};
+    // Handle the actual API response structure
+    const cctx = ccTx.CrossChainTx || ccTx.cctx || ccTx;
+    const inboundParams = cctx.inbound_params || cctx.inbound_tx_params || {};
+    const outboundParams = cctx.outbound_params?.[0] || cctx.outbound_tx_params?.[0] || {};
     const status = cctx.cctx_status?.status;
+
+    // Parse timestamp from the API response
+    const timestamp = cctx.cctx_status?.created_timestamp 
+      ? parseInt(cctx.cctx_status.created_timestamp) * 1000 
+      : Date.now();
 
     return {
       txHash: cctx.index || "unknown",
-      blockNumber: inboundParams.observed_hash ? 1 : 0,
-      timestamp: Date.now(),
+      blockNumber: inboundParams.observed_external_height 
+        ? parseInt(inboundParams.observed_external_height) 
+        : 0,
+      timestamp: timestamp,
       from: inboundParams.sender || "unknown",
       to: outboundParams.receiver || "unknown",
       value: inboundParams.amount || "0",
-      gasUsed: inboundParams.gas_limit || "0",
-      gasPrice: inboundParams.gas_price || "0",
+      gasUsed: outboundParams.gas_used || inboundParams.gas_limit || "0",
+      gasPrice: outboundParams.gas_price || inboundParams.gas_price || "0",
       status: this.mapCrossChainStatus(status),
-      chainId: inboundParams.sender_chain_id || 0,
+      chainId: inboundParams.sender_chain_id 
+        ? parseInt(inboundParams.sender_chain_id) 
+        : 0,
       type: "cross-chain",
       network: this.currentNetwork,
       crossChainData: {
-        sourceChain: inboundParams.sender_chain_id,
-        destinationChain: outboundParams.receiver_chainId,
+        sourceChain: inboundParams.sender_chain_id 
+          ? parseInt(inboundParams.sender_chain_id) 
+          : undefined,
+        destinationChain: outboundParams.receiver_chainId 
+          ? parseInt(outboundParams.receiver_chainId) 
+          : undefined,
         status: this.mapCrossChainStatus(status),
         bridgeContract: inboundParams.coin_type || "unknown",
-        crossChainTxHash: outboundParams.outbound_tx_hash,
+        crossChainTxHash: outboundParams.hash || outboundParams.outbound_tx_hash,
+        inboundTxHash: inboundParams.observed_hash,
+        statusMessage: cctx.cctx_status?.status_message || "",
+        errorMessage: cctx.cctx_status?.error_message || "",
       },
     };
   }
 
   /**
    * Map cross-chain status to application status
-   * @param {number} status - Cross-chain status code
+   * @param {string|number} status - Cross-chain status code or string
    * @returns {'success'|'pending'|'failed'}
    */
   mapCrossChainStatus(status) {
+    if (typeof status === 'string') {
+      switch (status.toLowerCase()) {
+        case 'outboundmined':
+        case 'success':
+          return "success";
+        case 'pendinginbound':
+        case 'pendingoutbound':
+        case 'pending':
+          return "pending";
+        case 'aborted':
+        case 'reverted':
+        case 'failed':
+          return "failed";
+        default:
+          return "pending";
+      }
+    }
+    
+    // Handle numeric status codes
     switch (status) {
       case 3:
         return "success"; // OutboundMined

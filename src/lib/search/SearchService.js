@@ -252,9 +252,11 @@ export class SearchService {
 
     try {
       // Use unified ZetaChain service for transaction search
+      console.log(`Searching for transaction: ${normalizedHash} on ${this.networkType}`);
       const transactionData = await this.zetaService.getTransaction(
         normalizedHash
       );
+      console.log("ZetaChain API returned:", transactionData);
 
       // Determine result type based on transaction data
       const resultType =

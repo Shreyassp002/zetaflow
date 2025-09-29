@@ -59,6 +59,15 @@ export default function SearchContainer({
         if (onSearchComplete) {
           onSearchComplete(result);
         }
+
+        // If we have transaction data, automatically select the first result for sidebar
+        if (result && result.data && result.data.length > 0) {
+          const firstTransaction = result.data[0];
+          console.log("Auto-selecting transaction for sidebar:", firstTransaction);
+          if (onResultSelect) {
+            onResultSelect(firstTransaction);
+          }
+        }
       } catch (error) {
         console.error("Search failed:", error);
         setSearchResults(null);
