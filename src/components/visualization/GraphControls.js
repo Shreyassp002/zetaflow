@@ -35,8 +35,7 @@ export default function GraphControls({
 
   const layouts = [
     { value: 'fcose', label: 'Force Directed' },
-    { value: 'dagre', label: 'Hierarchical' },
-    { value: 'coseBilkent', label: 'Cose Bilkent' }
+    { value: 'dagre', label: 'Hierarchical' }
   ];
 
   const handleExport = async (format) => {

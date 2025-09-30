@@ -9,6 +9,7 @@ import {
 } from "@/components/ui";
 import { SearchInput } from "@/components/search";
 import NetworkStats from "@/components/sidebar/NetworkStats";
+import TransactionSidebar from "@/components/sidebar/TransactionSidebar";
 
 import { GraphVisualization, GraphControls } from "@/components/visualization";
 import { getSearchService } from "@/lib/search/SearchService";
@@ -279,146 +280,7 @@ export default function Home() {
 
           {/* Right Sidebar - Transaction Details */}
           <div className="w-full lg:w-64 xl:w-80 flex-shrink-0 space-y-4">
-            <div className="bg-white border-2 border-gray-300 rounded-lg p-4 h-full shadow-sm">
-              <h2 className="text-lg font-semibold mb-4 text-black">
-                Transaction Details
-              </h2>
-              {sidebarTransaction ? (
-                <div className="space-y-4 overflow-y-auto max-h-[calc(100vh-300px)]">
-                  {/* Transaction Hash */}
-                  <div>
-                    <label className="block text-xs font-medium text-gray-600 uppercase tracking-wide mb-1">
-                      Transaction Hash
-                    </label>
-                    <span className="text-sm font-mono text-black break-all">
-                      {sidebarTransaction.txHash ?
-                        `${sidebarTransaction.txHash.slice(0, 10)}...${sidebarTransaction.txHash.slice(-8)}`
-                        : "N/A"}
-                    </span>
-                  </div>
-
-                  {/* Status */}
-                  <div>
-                    <label className="block text-xs font-medium text-gray-600 uppercase tracking-wide mb-1">
-                      Status
-                    </label>
-                    <span className={`text-sm font-medium capitalize ${sidebarTransaction.status === 'success' ? 'text-green-600' :
-                      sidebarTransaction.status === 'pending' ? 'text-yellow-600' :
-                        sidebarTransaction.status === 'failed' ? 'text-red-600' :
-                          'text-gray-600'
-                      }`}>
-                      {sidebarTransaction.status || "Unknown"}
-                    </span>
-                  </div>
-
-                  {/* From Address */}
-                  <div>
-                    <label className="block text-xs font-medium text-gray-600 uppercase tracking-wide mb-1">
-                      From
-                    </label>
-                    <span className="text-sm font-mono text-black">
-                      {sidebarTransaction.from ?
-                        `${sidebarTransaction.from.slice(0, 6)}...${sidebarTransaction.from.slice(-4)}`
-                        : "N/A"}
-                    </span>
-                  </div>
-
-                  {/* To Address */}
-                  <div>
-                    <label className="block text-xs font-medium text-gray-600 uppercase tracking-wide mb-1">
-                      To
-                    </label>
-                    <span className="text-sm font-mono text-black">
-                      {sidebarTransaction.to ?
-                        `${sidebarTransaction.to.slice(0, 6)}...${sidebarTransaction.to.slice(-4)}`
-                        : "N/A"}
-                    </span>
-                  </div>
-
-                  {/* Amount */}
-                  <div>
-                    <label className="block text-xs font-medium text-gray-600 uppercase tracking-wide mb-1">
-                      Amount
-                    </label>
-                    <span className="text-sm text-black">
-                      {sidebarTransaction.value ?
-                        `${(parseFloat(sidebarTransaction.value) / Math.pow(10, 18)).toFixed(6)} ZETA`
-                        : "0 ZETA"}
-                    </span>
-                  </div>
-
-                  {/* Block Number */}
-                  {sidebarTransaction.blockNumber && (
-                    <div>
-                      <label className="block text-xs font-medium text-gray-600 uppercase tracking-wide mb-1">
-                        Block
-                      </label>
-                      <span className="text-sm text-black">
-                        {sidebarTransaction.blockNumber}
-                      </span>
-                    </div>
-                  )}
-
-                  {/* Chain Info */}
-                  {sidebarTransaction.chainId && (
-                    <div>
-                      <label className="block text-xs font-medium text-gray-600 uppercase tracking-wide mb-1">
-                        Chain
-                      </label>
-                      <span className="text-sm text-black">
-                        {sidebarTransaction.chainName || `Chain ${sidebarTransaction.chainId}`}
-                      </span>
-                    </div>
-                  )}
-
-                  {/* Cross-chain Data */}
-                  {sidebarTransaction.crossChainData && (
-                    <>
-                      <div>
-                        <label className="block text-xs font-medium text-gray-600 uppercase tracking-wide mb-1">
-                          Source Chain
-                        </label>
-                        <span className="text-sm text-black">
-                          {sidebarTransaction.crossChainData.sourceChain || "Unknown"}
-                        </span>
-                      </div>
-                      <div>
-                        <label className="block text-xs font-medium text-gray-600 uppercase tracking-wide mb-1">
-                          Destination Chain
-                        </label>
-                        <span className="text-sm text-black">
-                          {sidebarTransaction.crossChainData.destinationChain || "Unknown"}
-                        </span>
-                      </div>
-                    </>
-                  )}
-
-                  {/* Timestamp */}
-                  {sidebarTransaction.timestamp && (
-                    <div>
-                      <label className="block text-xs font-medium text-gray-600 uppercase tracking-wide mb-1">
-                        Time
-                      </label>
-                      <span className="text-sm text-black">
-                        {typeof sidebarTransaction.timestamp === 'number'
-                          ? new Date(sidebarTransaction.timestamp > 1000000000000 ? sidebarTransaction.timestamp : sidebarTransaction.timestamp * 1000).toLocaleString()
-                          : sidebarTransaction.timestamp}
-                      </span>
-                    </div>
-                  )}
-                </div>
-              ) : (
-                <div className="text-center text-gray-500 mt-8">
-                  <div className="w-12 h-12 mx-auto mb-3 border-2 border-gray-300 rounded-lg flex items-center justify-center">
-                    <div className="w-6 h-6 border border-gray-300 rounded"></div>
-                  </div>
-                  <p className="text-sm">No transaction selected</p>
-                  <p className="text-xs mt-1">
-                    Click on graph nodes or edges to view details
-                  </p>
-                </div>
-              )}
-            </div>
+            <TransactionSidebar transaction={sidebarTransaction} />
           </div>
         </div>
       </main>
