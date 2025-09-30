@@ -32,9 +32,9 @@ export {
   searchHistoryManager,
 } from "./SearchHistoryManager.js";
 
-// Validation utilities (moved from MockDataService)
+// Validation utilities
 export {
   isValidTxHash,
   isValidAddress,
   simulateDelay,
-} from "./MockDataService.js";
+} from "./ValidationUtils.js";

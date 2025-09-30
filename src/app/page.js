@@ -39,18 +39,7 @@ export default function Home() {
     console.log("Network switched to:", network);
   };
 
-  const handleSearchResult = (result) => {
-    setSelectedTransaction(result);
-    setShowVisualization(true);
-    console.log("Search result selected:", result);
-  };
 
-  const handleResultSelect = (transaction) => {
-    console.log("Transaction selected for visualization:", transaction);
-    // Show transaction details in sidebar
-    setSidebarTransaction(transaction);
-    // This would also trigger the graph visualization
-  };
 
   const handleNodeClick = useCallback((nodeData) => {
     console.log("Node clicked:", nodeData);
