@@ -419,6 +419,118 @@ export default function TransactionSidebar({ transaction }) {
           </div>
         )}
 
+        {/* Swap Information */}
+        {transaction.swapInfo && transaction.swapInfo.isSwap && (
+          <div className="border-t pt-4">
+            <h3 className="text-sm font-semibold text-gray-800 mb-3">
+              Swap Details - {transaction.swapInfo.dexName}
+            </h3>
+            <div className="bg-blue-50 p-3 rounded-lg">
+              <div className="flex items-center justify-between mb-3">
+                <span className="text-xs font-medium text-blue-600 uppercase">
+                  {transaction.swapInfo.method}
+                </span>
+              </div>
+              
+              {transaction.swapInfo.tokenIn && transaction.swapInfo.tokenOut && (
+                <div className="space-y-2">
+                  <div className="flex items-center justify-between">
+                    <span className="text-sm text-gray-600">From:</span>
+                    <span className="text-sm font-semibold text-red-600">
+                      -{transaction.swapInfo.tokenIn.amount} {transaction.swapInfo.tokenIn.symbol}
+                    </span>
+                  </div>
+                  <div className="flex items-center justify-center">
+                    <svg className="w-4 h-4 text-gray-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 14l-7 7m0 0l-7-7m7 7V3" />
+                    </svg>
+                  </div>
+                  <div className="flex items-center justify-between">
+                    <span className="text-sm text-gray-600">To:</span>
+                    <span className="text-sm font-semibold text-green-600">
+                      +{transaction.swapInfo.tokenOut.amount} {transaction.swapInfo.tokenOut.symbol}
+                    </span>
+                  </div>
+                </div>
+              )}
+            </div>
+          </div>
+        )}
+
+        {/* Token Transfers */}
+        {transaction.tokenTransfers && transaction.tokenTransfers.length > 0 && !transaction.swapInfo?.isSwap && (
+          <div className="border-t pt-4">
+            <h3 className="text-sm font-semibold text-gray-800 mb-3">Token Transfers</h3>
+            <div className="space-y-3">
+              {transaction.tokenTransfers.map((transfer, index) => (
+                <div key={index} className="bg-gray-50 p-3 rounded-lg">
+                  <div className="flex items-center justify-between mb-2">
+                    <span className="text-xs font-medium text-gray-600 uppercase">
+                      {transfer.tokenSymbol || 'Unknown Token'}
+                    </span>
+                    <span className="text-sm font-semibold text-black">
+                      {transfer.amount} {transfer.tokenSymbol}
+                    </span>
+                  </div>
+                  
+                  <div className="space-y-1 text-xs">
+                    <div className="flex justify-between">
+                      <span className="text-gray-500">From:</span>
+                      <span className="font-mono text-gray-700">
+                        {transfer.from ? `${transfer.from.slice(0, 6)}...${transfer.from.slice(-4)}` : 'N/A'}
+                      </span>
+                    </div>
+                    <div className="flex justify-between">
+                      <span className="text-gray-500">To:</span>
+                      <span className="font-mono text-gray-700">
+                        {transfer.to ? `${transfer.to.slice(0, 6)}...${transfer.to.slice(-4)}` : 'N/A'}
+                      </span>
+                    </div>
+                    {transfer.tokenAddress && (
+                      <div className="flex justify-between">
+                        <span className="text-gray-500">Token:</span>
+                        <span className="font-mono text-gray-700">
+                          {`${transfer.tokenAddress.slice(0, 6)}...${transfer.tokenAddress.slice(-4)}`}
+                        </span>
+                      </div>
+                    )}
+                  </div>
+                </div>
+              ))}
+            </div>
+          </div>
+        )}
+
+        {/* Contract Interaction */}
+        {transaction.evmData?.isContractInteraction && (
+          <div className="border-t pt-4">
+            <h3 className="text-sm font-semibold text-gray-800 mb-3">Contract Interaction</h3>
+            <div className="space-y-2">
+              <div>
+                <label className="block text-xs font-medium text-gray-600 uppercase tracking-wide mb-1">
+                  Method
+                </label>
+                <span className="text-sm text-black font-mono">
+                  {transaction.evmData.inputData ? 
+                    `0x${transaction.evmData.inputData.slice(2, 10)}` : 
+                    'Unknown'
+                  }
+                </span>
+              </div>
+              {transaction.evmData.inputData && transaction.evmData.inputData.length > 10 && (
+                <div>
+                  <label className="block text-xs font-medium text-gray-600 uppercase tracking-wide mb-1">
+                    Input Data
+                  </label>
+                  <span className="text-xs text-gray-600 font-mono break-all">
+                    {`${transaction.evmData.inputData.slice(0, 50)}...`}
+                  </span>
+                </div>
+              )}
+            </div>
+          </div>
+        )}
+
         {/* Confirmations */}
         {transaction.confirmations && (
           <div>
