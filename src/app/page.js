@@ -10,6 +10,7 @@ import {
 import { SearchInput } from "@/components/search";
 import NetworkStats from "@/components/sidebar/NetworkStats";
 import TransactionSidebar from "@/components/sidebar/TransactionSidebar";
+import { useToast } from "@/components/providers";
 
 import { GraphVisualization, GraphControls } from "@/components/visualization";
 import { getSearchService } from "@/lib/search/SearchService";
@@ -24,6 +25,9 @@ export default function Home() {
   const [graphTransactions, setGraphTransactions] = useState([]);
   const [graphLayout, setGraphLayout] = useState('fcose');
   const [graphService, setGraphService] = useState(null);
+  
+  // Toast notifications
+  const { showError, showWarning, showSuccess, showInfo } = useToast();
 
   const handleNetworkToggle = (network) => {
     setNetworkMode(network);
@@ -75,7 +79,10 @@ export default function Home() {
     console.log("Exporting graph as:", format);
 
     if (!graphService) {
-      alert('Graph service not available');
+      showError('Graph service not available. Please wait for the graph to load completely.', {
+        title: "Export Error",
+        duration: 4000
+      });
       return;
     }
 
@@ -88,6 +95,16 @@ export default function Home() {
           link.download = `zetaflow-graph-${Date.now()}.png`;
           link.href = exportData;
           link.click();
+          
+          showSuccess('Graph exported as PNG successfully!', {
+            title: "Export Complete",
+            duration: 3000
+          });
+        } else {
+          showError('Failed to generate PNG export. Please try again.', {
+            title: "Export Error",
+            duration: 4000
+          });
         }
       } else if (format === 'json') {
         const exportData = graphService.exportJSON();
@@ -100,11 +117,24 @@ export default function Home() {
           link.href = url;
           link.click();
           URL.revokeObjectURL(url);
+          
+          showSuccess('Graph data exported as JSON successfully!', {
+            title: "Export Complete",
+            duration: 3000
+          });
+        } else {
+          showError('Failed to generate JSON export. Please try again.', {
+            title: "Export Error",
+            duration: 4000
+          });
         }
       }
     } catch (error) {
       console.error('Export failed:', error);
-      alert('Export failed. Please try again.');
+      showError(`Export failed: ${error.message}. Please try again.`, {
+        title: "Export Error",
+        duration: 5000
+      });
     }
   };
 
@@ -121,8 +151,21 @@ export default function Home() {
       // Get the appropriate search service for the current network
       const searchService = getSearchService(networkMode);
 
-      // Perform the search
-      const searchResult = await searchService.search(query);
+      // Create notification handler for the search service
+      const notificationHandler = {
+        showError,
+        showWarning,
+        showInfo,
+        showSuccess,
+        onNetworkSwitch: (targetNetwork) => {
+          handleNetworkToggle(targetNetwork);
+        }
+      };
+
+      // Perform the search with notification support
+      const searchResult = await searchService.search(query, {
+        notificationHandler
+      });
       console.log("Search result:", searchResult);
 
       if (searchResult && searchResult.data && searchResult.data.length > 0) {
@@ -139,14 +182,31 @@ export default function Home() {
         setSidebarTransaction(transactionData);
 
         console.log("Transaction data for sidebar:", transactionData);
+        
+        // Show success notification
+        showSuccess(`Found transaction on ${networkMode} network`, {
+          title: "Search Successful",
+          duration: 3000
+        });
       } else {
         console.log("No transaction data found");
         // Handle case where no results are found
-        alert("No transaction found for the given query");
+        showWarning("No transaction found for the given query", {
+          title: "No Results",
+          duration: 4000
+        });
       }
     } catch (error) {
       console.error("Search failed:", error);
-      alert(`Search failed: ${error.message}`);
+      
+      // The SearchService now handles all error notifications internally
+      // This catch block is mainly for unexpected errors that bypass the service
+      if (!error.type) {
+        showError(`Unexpected error: ${error.message}`, {
+          title: "Search Error",
+          duration: 5000
+        });
+      }
     } finally {
       setIsSearching(false);
     }
@@ -289,7 +349,7 @@ export default function Home() {
       <footer className="border-t-2 border-gray-300 bg-white mt-8">
         <div className="py-4 px-12">
           <div className="flex items-center justify-between text-sm text-gray-600">
-            <p>© 2024 ZetaFlow Visualizer. Built for ZetaChain ecosystem.</p>
+            <p>Built for ZetaChain ecosystem.</p>
             <div className="flex items-center space-x-4">
               <span>
                 Network: ZetaChain{" "}

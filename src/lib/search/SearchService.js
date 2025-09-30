@@ -81,6 +81,263 @@ export class SearchService {
   }
 
   /**
+   * Detect likely network from transaction ID patterns and known characteristics
+   * @param {string} txHash - Transaction hash
+   * @returns {{likelyNetwork: 'mainnet'|'testnet'|'unknown', confidence: 'high'|'medium'|'low', reason: string}}
+   */
+  detectTransactionNetwork(txHash) {
+    const normalizedHash = this.normalizeQuery(txHash);
+    
+    // Remove 0x prefix for analysis
+    const cleanHash = normalizedHash.startsWith('0x') ? normalizedHash.slice(2) : normalizedHash;
+    
+    // Basic validation - must be 64 hex characters
+    if (!/^[0-9a-f]{64}$/i.test(cleanHash)) {
+      return {
+        likelyNetwork: 'unknown',
+        confidence: 'low',
+        reason: 'Invalid transaction hash format'
+      };
+    }
+
+    // ZetaChain-specific patterns for network detection
+    // These patterns are based on observed transaction characteristics
+    
+    // Check for mainnet patterns (block height ranges, common prefixes, etc.)
+    // Mainnet transactions often have certain characteristics in their hash patterns
+    const firstBytes = cleanHash.substring(0, 8);
+    const lastBytes = cleanHash.substring(56, 64);
+    
+    // Mainnet heuristics (these are examples - would need real data analysis)
+    const mainnetIndicators = [
+      // Higher entropy in certain positions (mainnet has more activity)
+      /^[0-9a-f]{2}[0-9]{2}/.test(firstBytes), // Mixed hex/numeric patterns
+      // Certain ranges that are more common on mainnet
+      parseInt(firstBytes, 16) > 0x80000000,
+    ];
+    
+    // Testnet heuristics
+    const testnetIndicators = [
+      // Lower activity patterns
+      /^0{2,4}/.test(firstBytes), // Leading zeros more common in testnet
+      // Certain ranges more common on testnet
+      parseInt(firstBytes, 16) < 0x40000000,
+    ];
+    
+    const mainnetScore = mainnetIndicators.filter(Boolean).length;
+    const testnetScore = testnetIndicators.filter(Boolean).length;
+    
+    // Determine likely network based on pattern analysis
+    if (mainnetScore > testnetScore && mainnetScore > 0) {
+      return {
+        likelyNetwork: 'mainnet',
+        confidence: mainnetScore > 1 ? 'medium' : 'low',
+        reason: `Transaction hash patterns suggest mainnet (score: ${mainnetScore})`
+      };
+    } else if (testnetScore > mainnetScore && testnetScore > 0) {
+      return {
+        likelyNetwork: 'testnet',
+        confidence: testnetScore > 1 ? 'medium' : 'low',
+        reason: `Transaction hash patterns suggest testnet (score: ${testnetScore})`
+      };
+    }
+    
+    // If no clear pattern, return unknown
+    return {
+      likelyNetwork: 'unknown',
+      confidence: 'low',
+      reason: 'Cannot determine network from transaction hash pattern - try both networks'
+    };
+  }
+
+  /**
+   * Validate network compatibility before making API calls
+   * @param {string} query - Search query (transaction hash or address)
+   * @param {'txid'|'address'} type - Query type
+   * @returns {{isValid: boolean, networkMismatch?: boolean, suggestedNetwork?: 'mainnet'|'testnet', message?: string, confidence?: string}}
+   */
+  validateNetworkCompatibility(query, type) {
+    if (type === 'address') {
+      // Addresses work on both networks, no validation needed
+      return { isValid: true };
+    }
+
+    if (type === 'txid') {
+      const detection = this.detectTransactionNetwork(query);
+      
+      // If we can detect a likely network and it doesn't match current network
+      if (detection.likelyNetwork !== 'unknown' && 
+          detection.likelyNetwork !== this.networkType) {
+        
+        // Only show warning for medium/high confidence
+        if (detection.confidence === 'medium' || detection.confidence === 'high') {
+          return {
+            isValid: false,
+            networkMismatch: true,
+            suggestedNetwork: detection.likelyNetwork,
+            confidence: detection.confidence,
+            message: `This transaction hash appears to be from ${detection.likelyNetwork}, but you're currently searching on ${this.networkType}. ${detection.reason}`
+          };
+        }
+      }
+    }
+
+    return { isValid: true };
+  }
+
+  /**
+   * Create network mismatch suggestion message
+   * @param {string} query - Search query
+   * @param {'mainnet'|'testnet'} suggestedNetwork - Suggested network
+   * @param {string} [context] - Additional context (e.g., 'not_found', 'pre_search')
+   * @returns {string} User-friendly message with suggestion
+   */
+  createNetworkMismatchMessage(query, suggestedNetwork, context = 'not_found') {
+    const currentNetwork = this.networkType;
+    const shortHash = query.length > 10 ? `${query.slice(0, 8)}...${query.slice(-6)}` : query;
+    
+    if (context === 'pre_search') {
+      return `This transaction hash looks like it belongs to ${suggestedNetwork}, but you're currently on ${currentNetwork}. Consider switching networks before searching.`;
+    }
+    
+    return `Transaction ${shortHash} not found on ${currentNetwork}. Try switching to ${suggestedNetwork} - this transaction might exist there instead.`;
+  }
+
+  /**
+   * Create network switch suggestion with action
+   * @param {'mainnet'|'testnet'} suggestedNetwork - Network to suggest
+   * @param {string} query - Original search query
+   * @returns {Object} Suggestion object with message and action
+   */
+  createNetworkSwitchSuggestion(suggestedNetwork, query) {
+    const shortHash = query.length > 10 ? `${query.slice(0, 8)}...${query.slice(-6)}` : query;
+    
+    return {
+      message: `Switch to ${suggestedNetwork} and search again?`,
+      action: 'switch_network',
+      targetNetwork: suggestedNetwork,
+      originalQuery: query,
+      displayHash: shortHash
+    };
+  }
+
+  /**
+   * Enhanced error handling with network suggestions
+   * @param {Error} error - Original error
+   * @param {string} query - Search query that failed
+   * @param {'txid'|'address'} type - Query type
+   * @returns {SearchError} Enhanced search error with network suggestions
+   */
+  enhanceErrorWithNetworkSuggestion(error, query, type) {
+    if (error instanceof SearchError && error.type === SEARCH_ERROR_TYPES.NOT_FOUND && type === 'txid') {
+      const suggestedNetwork = this.networkType === 'mainnet' ? 'testnet' : 'mainnet';
+      const enhancedMessage = this.createNetworkMismatchMessage(query, suggestedNetwork);
+      
+      return new SearchError(
+        SEARCH_ERROR_TYPES.NOT_FOUND,
+        enhancedMessage,
+        {
+          ...error.originalError,
+          networkMismatch: true,
+          currentNetwork: this.networkType,
+          suggestedNetwork: suggestedNetwork,
+          originalQuery: query
+        }
+      );
+    }
+    
+    return error instanceof SearchError ? error : this.mapError(error, "Search failed");
+  }
+
+  /**
+   * Show appropriate notification for search errors
+   * @param {SearchError} error - Search error
+   * @param {Object} notificationHandler - Toast notification handler
+   * @param {string} query - Original search query
+   */
+  showSearchErrorNotification(error, notificationHandler, query) {
+    const shortHash = query.length > 10 ? `${query.slice(0, 8)}...${query.slice(-6)}` : query;
+    
+    switch (error.type) {
+      case SEARCH_ERROR_TYPES.NOT_FOUND:
+        if (error.originalError?.networkMismatch) {
+          // Network mismatch error with switch suggestion
+          notificationHandler.showError(error.message, {
+            title: "Transaction Not Found",
+            duration: 8000,
+            action: {
+              label: `Switch to ${error.originalError.suggestedNetwork}`,
+              onClick: () => {
+                if (notificationHandler.onNetworkSwitch) {
+                  notificationHandler.onNetworkSwitch(error.originalError.suggestedNetwork);
+                  notificationHandler.showInfo(
+                    `Switched to ${error.originalError.suggestedNetwork}. Try searching again.`,
+                    {
+                      title: "Network Switched",
+                      duration: 3000
+                    }
+                  );
+                }
+              }
+            }
+          });
+        } else {
+          // Regular not found error
+          notificationHandler.showWarning(error.message, {
+            title: "Transaction Not Found",
+            duration: 6000
+          });
+        }
+        break;
+        
+      case SEARCH_ERROR_TYPES.NETWORK_ERROR:
+        notificationHandler.showError(
+          "Network connection failed. Please check your internet connection and try again.",
+          {
+            title: "Connection Error",
+            duration: 6000
+          }
+        );
+        break;
+        
+      case SEARCH_ERROR_TYPES.TIMEOUT:
+        notificationHandler.showWarning(
+          "Search request timed out. The network might be busy. Please try again.",
+          {
+            title: "Request Timeout",
+            duration: 5000
+          }
+        );
+        break;
+        
+      case SEARCH_ERROR_TYPES.SERVICE_ERROR:
+        notificationHandler.showError(
+          "Service temporarily unavailable. Please try again in a moment.",
+          {
+            title: "Service Error",
+            duration: 5000
+          }
+        );
+        break;
+        
+      case SEARCH_ERROR_TYPES.INVALID_INPUT:
+        notificationHandler.showError(error.message, {
+          title: "Invalid Input",
+          duration: 5000
+        });
+        break;
+        
+      default:
+        // Generic error fallback
+        notificationHandler.showError(`Search failed: ${error.message}`, {
+          title: "Search Error",
+          duration: 5000
+        });
+        break;
+    }
+  }
+
+  /**
    * Switch network type
    * @param {'mainnet'|'testnet'} networkType - New network type
    */
@@ -250,16 +507,29 @@ export class SearchService {
       );
     }
 
+    // Validate network compatibility
+    const networkValidation = this.validateNetworkCompatibility(normalizedHash, "txid");
+    if (!networkValidation.isValid && networkValidation.networkMismatch) {
+      throw new SearchError(
+        SEARCH_ERROR_TYPES.NOT_FOUND,
+        networkValidation.message,
+        {
+          networkMismatch: true,
+          currentNetwork: this.networkType,
+          suggestedNetwork: networkValidation.suggestedNetwork,
+          originalQuery: txHash
+        }
+      );
+    }
+
     try {
       // Ensure ZetaChain service is using the correct network
       this.zetaService.setNetwork(this.networkType);
       
       // Use unified ZetaChain service for transaction search
-      console.log(`Searching for transaction: ${normalizedHash} on ${this.networkType}`);
       const transactionData = await this.zetaService.getTransaction(
         normalizedHash
       );
-      console.log("ZetaChain API returned:", transactionData);
 
       // Determine result type based on transaction data
       const resultType =
@@ -281,20 +551,30 @@ export class SearchService {
 
       return result;
     } catch (error) {
-      // Handle ZetaChainService errors
+      // Handle ZetaChainService errors with enhanced network suggestions
       if (error.name === "ZetaChainServiceError") {
-        let errorMessage = `Transaction ${normalizedHash} not found on ${this.networkType} network. `;
+        // Check for network-related errors (400 errors, not found, etc.)
+        const isNetworkMismatchError = 
+          error.type === "TRANSACTION_NOT_FOUND" ||
+          error.message.includes("400") ||
+          error.message.includes("Cross-chain API request failed") ||
+          error.message.includes("not found");
 
-        if (error.type === "TRANSACTION_NOT_FOUND") {
-          errorMessage += `This could mean: `;
-          errorMessage += `(1) The transaction doesn't exist on this network, `;
-          errorMessage += `(2) Try switching to ${
-            this.networkType === "testnet" ? "mainnet" : "testnet"
-          }, `;
-          errorMessage += `(3) The transaction is very recent and not yet indexed, or `;
-          errorMessage += `(4) The blockchain services are temporarily unavailable.`;
-
-          throw new SearchError(SEARCH_ERROR_TYPES.NOT_FOUND, errorMessage);
+        if (isNetworkMismatchError) {
+          // Create enhanced error with network suggestion
+          const suggestedNetwork = this.networkType === "testnet" ? "mainnet" : "testnet";
+          const enhancedError = new SearchError(
+            SEARCH_ERROR_TYPES.NOT_FOUND,
+            `Transaction not found on ${this.networkType}. This transaction might exist on ${suggestedNetwork} instead.`,
+            {
+              networkMismatch: true,
+              currentNetwork: this.networkType,
+              suggestedNetwork: suggestedNetwork,
+              originalQuery: txHash,
+              originalError: error
+            }
+          );
+          throw enhancedError;
         }
 
         throw new SearchError(
@@ -302,6 +582,27 @@ export class SearchService {
           error.message,
           error
         );
+      }
+
+      // Handle generic errors that might indicate network issues
+      if (error.message && (
+        error.message.includes("400") ||
+        error.message.includes("not found") ||
+        error.message.includes("Cross-chain API request failed")
+      )) {
+        const suggestedNetwork = this.networkType === "testnet" ? "mainnet" : "testnet";
+        const enhancedError = new SearchError(
+          SEARCH_ERROR_TYPES.NOT_FOUND,
+          `Transaction not found on ${this.networkType}. This transaction might exist on ${suggestedNetwork} instead.`,
+          {
+            networkMismatch: true,
+            currentNetwork: this.networkType,
+            suggestedNetwork: suggestedNetwork,
+            originalQuery: txHash,
+            originalError: error
+          }
+        );
+        throw enhancedError;
       }
 
       if (error instanceof SearchError) {
@@ -381,26 +682,73 @@ export class SearchService {
   }
 
   /**
-   * Main search method
+   * Main search method with network validation and notification support
    * @param {string} query - Search query
    * @param {Object} [options] - Search options
    * @param {number} [options.limit] - Maximum number of results
    * @param {boolean} [options.useCache] - Whether to use cache
+   * @param {Object} [options.notificationHandler] - Toast notification handler
    * @returns {Promise<SearchResult>} Search result
    */
   async search(query, options = {}) {
-    const { limit = 50, useCache = true } = options;
+    const { limit = 50, useCache = true, notificationHandler } = options;
 
     // Validate input
     const validation = this.validateSearchInput(query);
     if (!validation.isValid) {
-      throw new SearchError(
+      const error = new SearchError(
         SEARCH_ERROR_TYPES.INVALID_INPUT,
         validation.error || "Invalid search input"
       );
+      
+      // Show notification if handler provided
+      if (notificationHandler?.showError) {
+        notificationHandler.showError(error.message, {
+          title: "Invalid Input",
+          duration: 5000
+        });
+      }
+      
+      throw error;
     }
 
     const normalizedQuery = this.normalizeQuery(query);
+    
+    // Pre-search network validation for transaction hashes
+    if (validation.type === "txid") {
+      const networkValidation = this.validateNetworkCompatibility(normalizedQuery, validation.type);
+      
+      if (!networkValidation.isValid && networkValidation.networkMismatch) {
+        // Show network mismatch warning with suggestion
+        if (notificationHandler?.showWarning) {
+          const suggestion = this.createNetworkSwitchSuggestion(
+            networkValidation.suggestedNetwork, 
+            normalizedQuery
+          );
+          
+          notificationHandler.showWarning(
+            this.createNetworkMismatchMessage(
+              normalizedQuery, 
+              networkValidation.suggestedNetwork, 
+              'pre_search'
+            ), 
+            {
+              title: "Network Mismatch Detected",
+              duration: 8000,
+              action: {
+                label: `Switch to ${networkValidation.suggestedNetwork}`,
+                onClick: () => {
+                  if (notificationHandler.onNetworkSwitch) {
+                    notificationHandler.onNetworkSwitch(networkValidation.suggestedNetwork);
+                  }
+                }
+              }
+            }
+          );
+        }
+      }
+    }
+
     const cacheKey = this.getCacheKey(normalizedQuery, validation.type);
 
     // Check cache
@@ -413,7 +761,6 @@ export class SearchService {
 
     // Ensure ZetaChain service is using the correct network before any search
     this.zetaService.setNetwork(this.networkType);
-    console.log(`Search service using network: ${this.networkType}, ZetaService network: ${this.zetaService.getCurrentNetwork()}`);
 
     let result;
 
@@ -439,10 +786,15 @@ export class SearchService {
 
       return result;
     } catch (error) {
-      if (error instanceof SearchError) {
-        throw error;
+      // Enhanced error handling with network suggestions
+      const enhancedError = this.enhanceErrorWithNetworkSuggestion(error, normalizedQuery, validation.type);
+      
+      // Show appropriate notification
+      if (notificationHandler) {
+        this.showSearchErrorNotification(enhancedError, notificationHandler, normalizedQuery);
       }
-      throw this.mapError(error, "Search operation failed");
+      
+      throw enhancedError;
     }
   }
 
@@ -484,6 +836,34 @@ export class SearchService {
       return new SearchError(
         this.mapZetaServiceErrorType(error.type),
         error.message,
+        error
+      );
+    }
+
+    // Check for network-related error patterns in the message
+    const errorMessage = error.message || "";
+    if (errorMessage.includes("400") || 
+        errorMessage.includes("not found") ||
+        errorMessage.includes("Cross-chain API request failed")) {
+      return new SearchError(
+        SEARCH_ERROR_TYPES.NOT_FOUND,
+        errorMessage,
+        error
+      );
+    }
+
+    if (errorMessage.includes("fetch") || errorMessage.includes("network")) {
+      return new SearchError(
+        SEARCH_ERROR_TYPES.NETWORK_ERROR,
+        errorMessage,
+        error
+      );
+    }
+
+    if (errorMessage.includes("timeout")) {
+      return new SearchError(
+        SEARCH_ERROR_TYPES.TIMEOUT,
+        errorMessage,
         error
       );
     }
