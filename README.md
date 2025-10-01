@@ -19,7 +19,7 @@ ZetaFlow enables users to search for transactions by transaction ID or wallet ad
 
 ## Technology Stack
 
-- **Frontend**: Next.js 14 with App Router and React 18
+- **Frontend**: Next.js 15 with App Router and React 19
 - **Styling**: TailwindCSS 4 with custom components
 - **UI Components**: Radix UI primitives with shadcn/ui
 - **Graph Visualization**: Cytoscape.js with multiple layout algorithms
@@ -41,7 +41,7 @@ ZetaFlow enables users to search for transactions by transaction ID or wallet ad
 
 1. Clone the repository:
 ```bash
-git clone <repository-url>
+git clone https://github.com/Shreyassp002/zetaflow
 cd zetaflow
 ```
 
