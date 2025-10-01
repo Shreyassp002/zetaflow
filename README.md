@@ -1,4 +1,8 @@
-# ZetaFlow - Cross-Chain Transaction Visualizer
+<div align="center">
+  <img src="public/logo.png" alt="ZetaFlow Logo" width="64" height="64">
+  
+  # ZetaFlow - Cross-Chain Transaction Visualizer
+</div>
 
 A professional web application for exploring and analyzing cross-chain transactions on the ZetaChain ecosystem. ZetaFlow provides interactive graph-based visualization of transaction flows across chains, helping developers, auditors, and community members understand complex cross-chain movements.
 
