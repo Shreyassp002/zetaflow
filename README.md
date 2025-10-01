@@ -1,5 +1,5 @@
 <div align="center">
-  <img src="public/logo.png" alt="ZetaFlow Logo" width="64" height="64">
+  <img src="public/logo.png" alt="ZetaFlow Logo" width="200" height="200">
   
   # ZetaFlow - Cross-Chain Transaction Visualizer
 </div>
