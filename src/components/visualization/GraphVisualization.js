@@ -47,6 +47,16 @@ export default function GraphVisualization({
     tooltipRef.current.style.display = 'none';
   };
 
+  // Keep track of event handlers
+  const onNodeClickRef = useRef(onNodeClick);
+  const onEdgeClickRef = useRef(onEdgeClick);
+
+  // Update refs when props change
+  useEffect(() => {
+    onNodeClickRef.current = onNodeClick;
+    onEdgeClickRef.current = onEdgeClick;
+  }, [onNodeClick, onEdgeClick]);
+
   // Initialize graph service (only once)
   useEffect(() => {
     if (!containerRef.current || graphServiceRef.current) return;
@@ -61,6 +71,21 @@ export default function GraphVisualization({
       // Initialize Cytoscape with container
       const cy = graphServiceRef.current.initialize(containerRef.current, {
         layout: { name: layout }
+      });
+
+      // Add click handlers using refs to avoid re-binding
+      graphServiceRef.current.on('tap', 'node', (event) => {
+        const node = event.target;
+        if (onNodeClickRef.current) {
+          onNodeClickRef.current(node.data());
+        }
+      });
+
+      graphServiceRef.current.on('tap', 'edge', (event) => {
+        const edge = event.target;
+        if (onEdgeClickRef.current) {
+          onEdgeClickRef.current(edge.data());
+        }
       });
 
       // Add hover effects
@@ -204,29 +229,6 @@ export default function GraphVisualization({
     };
   }, []); // Only run once on mount
 
-  // Set up click event handlers when they change
-  useEffect(() => {
-    if (!graphServiceRef.current) return;
-
-    // Remove existing handlers
-    graphServiceRef.current.off('tap', 'node');
-    graphServiceRef.current.off('tap', 'edge');
-
-    // Add new handlers
-    if (onNodeClick) {
-      graphServiceRef.current.on('tap', 'node', (event) => {
-        const node = event.target;
-        onNodeClick(node.data());
-      });
-    }
-
-    if (onEdgeClick) {
-      graphServiceRef.current.on('tap', 'edge', (event) => {
-        const edge = event.target;
-        onEdgeClick(edge.data());
-      });
-    }
-  }, [onNodeClick, onEdgeClick]);
 
   // Load transaction data when it changes
   useEffect(() => {
